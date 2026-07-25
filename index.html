@@ -304,6 +304,7 @@ function App() {
         {tab === "archiv" && (
           <ArchivTab destinations={archivedDestinations} onReactivate={reactivateDestination} />
         )}
+        {tab === "hilfe" && <HilfeTab />}
       </div>
       <TabBar tab={tab} setTab={setTab} />
     </div>
@@ -370,6 +371,7 @@ function TabBar({ tab, setTab }) {
     { id: "ziele", label: "Ziele", emoji: "📍" },
     { id: "runden", label: "Runden", emoji: "🗳️" },
     { id: "archiv", label: "Archiv", emoji: "🗂️" },
+    { id: "hilfe", label: "Hilfe", emoji: "❓" },
   ];
   return (
     <div style={S.tabBar}>
@@ -699,7 +701,50 @@ function RankingList({ ranking }) {
   );
 }
 
-function ArchivTab({ destinations, onReactivate }) {
+function HilfeTab() {
+  return (
+    <div style={S.tabContent}>
+      <div style={S.helpIntro}>So funktioniert der Ausflugs-Pool – einmal von vorne bis hinten erklärt.</div>
+
+      <HelpSection title="1 · Beitreten">
+        <p style={S.helpText}>Familien-Code eingeben (derselbe für alle), Namen eingeben, "Beitreten" tippen. Die App merkt sich das auf deinem Handy – beim nächsten Öffnen bist du automatisch wieder drin.</p>
+        <p style={S.helpText}><b>Zum Startbildschirm:</b> Browser-Menü → "Zum Startbildschirm hinzufügen" – dann gibt es ein eigenes App-Icon.</p>
+      </HelpSection>
+
+      <HelpSection title="📍 Ziele">
+        <p style={S.helpText}>Hier sammelt ihr Ausflugsideen, unabhängig davon, ob gerade abgestimmt wird. "+ Neues Ziel vorschlagen" für Name, Beschreibung, Foto, Kategorie, Dauer, Kosten.</p>
+        <p style={S.helpText}><b>"✓ Waren dort":</b> verschiebt ein Ziel ins Archiv, sobald ihr es besucht habt.</p>
+      </HelpSection>
+
+      <HelpSection title="🗳️ Runden">
+        <p style={S.helpText}>Eine Runde ist eine Abstimmung über ausgewählte Ziele mit festem Start- und Enddatum. "+ Neue Runde erstellen": Alias, Start-/Enddatum, mindestens 2 Ziele auswählen.</p>
+        <div style={S.helpStatusRow}><span style={{ ...S.statusBadge, background: STATUS_COLOR.geplant + "22", color: STATUS_COLOR.geplant }}>Geplant</span><span style={S.helpText}>Startdatum in der Zukunft – Vorschau sichtbar, noch kein Abstimmen.</span></div>
+        <div style={S.helpStatusRow}><span style={{ ...S.statusBadge, background: STATUS_COLOR.aktiv + "22", color: STATUS_COLOR.aktiv }}>Aktiv</span><span style={S.helpText}>Abstimmen möglich, Zwischenstand live sichtbar.</span></div>
+        <div style={S.helpStatusRow}><span style={{ ...S.statusBadge, background: STATUS_COLOR.beendet + "22", color: STATUS_COLOR.beendet }}>Beendet</span><span style={S.helpText}>Enddatum vorbei – Abstimmen gesperrt, Ergebnis bleibt dauerhaft sichtbar.</span></div>
+        <p style={S.helpText}>Beim Abstimmen: Punkte 1 bis N vergeben (N = Anzahl Ziele), jede Zahl nur einmal, wichtigstes Ziel bekommt die höchste Zahl.</p>
+      </HelpSection>
+
+      <HelpSection title="🗂️ Archiv">
+        <p style={S.helpText}>Besuchte Ziele landen hier, mit der Punktzahl aus der letzten beendeten Runde (falls vorhanden). "↺ Wieder einbringen" holt ein Ziel zurück in den aktiven Pool.</p>
+      </HelpSection>
+
+      <HelpSection title="🔀 Mehrere Pools">
+        <p style={S.helpText}>Beliebig viele unabhängige Pools über unterschiedliche Familien-Codes. Der 🔀-Button oben rechts bringt dich zur Pool-Auswahl mit "Zuletzt genutzt"-Liste zum schnellen Wechseln.</p>
+      </HelpSection>
+
+      <div style={S.helpSummary}>Ziele sammeln → Runde mit Zeitraum erstellen → abstimmen, solange aktiv → Ergebnis ansehen → besuchte Ziele archivieren.</div>
+    </div>
+  );
+}
+
+function HelpSection({ title, children }) {
+  return (
+    <div style={S.helpCard}>
+      <div style={S.helpTitle}>{title}</div>
+      {children}
+    </div>
+  );
+}
   if (destinations.length === 0) {
     return (
       <div style={S.tabContent}>
@@ -802,6 +847,12 @@ const S = {
   backBtn: { alignSelf: "flex-start", background: "none", border: "none", color: "#3F6B4A", fontWeight: 700, fontSize: 13, cursor: "pointer", padding: "4px 0" },
   roundHeaderCard: { background: "#F7F4EC", borderRadius: 14, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 4 },
   previewRow: { background: "#F7F4EC", borderRadius: 10, padding: "9px 12px", fontSize: 13.5, color: "#223022" },
+  helpIntro: { fontSize: 13.5, color: "#5B5B4E", lineHeight: 1.5, marginBottom: 2 },
+  helpCard: { background: "#F7F4EC", borderRadius: 14, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 6 },
+  helpTitle: { fontFamily: "'Big Shoulders Display', sans-serif", fontWeight: 800, fontSize: 18, color: "#223022" },
+  helpText: { fontSize: 13, color: "#5B5B4E", lineHeight: 1.5, margin: 0 },
+  helpStatusRow: { display: "flex", alignItems: "center", gap: 8 },
+  helpSummary: { fontSize: 12.5, color: "#3F6B4A", fontWeight: 700, background: "#E4EBE1", padding: "12px 14px", borderRadius: 10, lineHeight: 1.5, textAlign: "center" },
 };
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
