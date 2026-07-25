@@ -745,6 +745,8 @@ function HelpSection({ title, children }) {
     </div>
   );
 }
+
+function ArchivTab({ destinations, onReactivate }) {
   if (destinations.length === 0) {
     return (
       <div style={S.tabContent}>
