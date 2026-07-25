@@ -312,12 +312,26 @@ function App() {
 }
 
 function JoinScreen({ roomCode, setRoomCode, name, setName, onJoin, recentProfiles, onQuickJoin }) {
+  const [showHelp, setShowHelp] = useState(false);
+
+  if (showHelp) {
+    return (
+      <div style={S.joinWrap}>
+        <div style={{ ...S.joinCard, maxHeight: "85vh", overflowY: "auto" }}>
+          <button style={S.backBtn} onClick={() => setShowHelp(false)}>← Zurück zum Beitreten</button>
+          <HilfeTab />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={S.joinWrap}>
       <div style={S.joinCard}>
         <div style={S.joinIcon}>🧭</div>
         <h1 style={S.joinTitle}>Ausflugs-Pool</h1>
         <p style={S.joinSub}>Sammelt Ziele, vergebt Punkte, findet eure gemeinsame Prioritätenliste.</p>
+        <button style={S.helpLink} onClick={() => setShowHelp(true)}>❓ Wie funktioniert die App?</button>
 
         {recentProfiles && recentProfiles.length > 0 && (
           <div style={{ marginBottom: 18 }}>
@@ -855,6 +869,7 @@ const S = {
   helpText: { fontSize: 13, color: "#5B5B4E", lineHeight: 1.5, margin: 0 },
   helpStatusRow: { display: "flex", alignItems: "center", gap: 8 },
   helpSummary: { fontSize: 12.5, color: "#3F6B4A", fontWeight: 700, background: "#E4EBE1", padding: "12px 14px", borderRadius: 10, lineHeight: 1.5, textAlign: "center" },
+  helpLink: { background: "none", border: "none", color: "#3F6B4A", fontWeight: 700, fontSize: 13, cursor: "pointer", padding: "0 0 18px", textAlign: "left", textDecoration: "underline" },
 };
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
