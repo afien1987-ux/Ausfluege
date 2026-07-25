@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#223022" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="icon.svg" />
+<title>Ausflugs-Pool</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+  html, body { margin: 0; padding: 0; background: #EFEDE3; font-family: 'Inter', sans-serif; }
+  * { box-sizing: border-box; }
+  .spin { animation: spin 0.9s linear infinite; }
+  @keyframes spin { from { transform: rotate(0deg);} to { transform: rotate(360deg);} }
+  select { font-family: 'JetBrains Mono', monospace; }
+  #root { min-height: 100vh; }
+</style>
+</head>
+<body>
+
+<div id="root"></div>
+
+<!-- ====== HIER DEINE SUPABASE-DATEN EINTRAGEN ====== -->
+<script>
+  window.SUPABASE_URL = "https://esfmotvtrkucoewovaep.supabase.co";
+  window.SUPABASE_ANON_KEY = "sb_publishable_4ZBydXtPrCA3HTnfkTnVsw_wJWQQhZ0";
+</script>
+<!-- ================================================== -->
+
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script type="module">
+  import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+  window.supabase = { createClient };
+</script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<script>
+  window.addEventListener("error", function (e) {
+    var root = document.getElementById("root");
+    if (root && !root.innerHTML) {
+      root.innerHTML =
+        '<div style="padding:24px;font-family:sans-serif;color:#8a2e2e;background:#fbeaea;min-height:100vh;">' +
+        '<h3>Fehler beim Laden</h3><p style="white-space:pre-wrap;">' +
+        (e.message || e) + '</p></div>';
+    }
+  });
+</script>
+
+<script type="text/plain" id="app-source">
+const { useState, useEffect, useCallback, useMemo } = React;
+
+if (!window.supabase) {
+  document.getElementById("root").innerHTML =
+    '<div style="padding:24px;font-family:sans-serif;color:#8a2e2e;background:#fbeaea;min-height:100vh;">' +
+    '<h3>Supabase-Bibliothek nicht geladen</h3>' +
+    '<p>Bitte Internetverbindung pr&uuml;fen und Seite neu laden.</p></div>';
+  throw new Error("supabase-js nicht geladen");
+}
+
+const sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+const TABLE = "pool_data";
+
+async function dbGet(roomCode, key) {
+  const { data, error } = await sb.from(TABLE).select("data_value").eq("room_code", roomCode).eq("data_key", key).maybeSingle();
+  if (error) { console.error(error); return null; }
+  return data ? data.data_value : null;
+}
+async function dbSet(roomCode, key, value) {
+  const { error } = await sb.from(TABLE).upsert(
+    { room_code: roomCode, data_key: key, data_value: value, updated_at: new Date().toISOString() },
+    { onConflict: "room_code,data_key" }
+  );
+  if (error) console.error(error);
+}
+async function dbListKeys(roomCode, prefix) {
+  const { data, error } = await sb.from(TABLE).select("data_key").eq("room_code", roomCode).like("data_key", `${prefix}%`);
+  if (error) { console.error(error); return []; }
+  return data.map((d) => d.data_key);
+}
+async function fetchRoundVotes(roomCode, roundId) {
+  const prefix = `votes:${roundId}:`;
+  const keys = await dbListKeys(roomCode, prefix);
+  const votesObj = {};
+  for (const k of keys) {
+    const v = await dbGet(roomCode, k);
+    if (v) votesObj[k.slice(prefix.length)] = v;
+  }
+  return votesObj;
+}
+
+const CATEGORY = [
+  { id: "draussen", label: "Draußen", emoji: "🌲", color: "#3F6B4A" },
+  { id: "drinnen", label: "Drinnen", emoji: "🏛️", color: "#4C7A94" },
+];
+const DURATION = [
+  { id: "kurz", label: "Kurz (< 2 Std.)" },
+  { id: "halbtag", label: "Halbtag" },
+  { id: "ganztag", label: "Ganztag" },
+];
+const COST = [
+  { id: "kostenlos", label: "Kostenlos" },
+  { id: "guenstig", label: "Günstig" },
+  { id: "teuer", label: "Teurer" },
+];
+const uid = () => Math.random().toString(36).slice(2, 10);
+const REFRESH_MS = 6000;
+
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+function formatDate(dateStr) {
+  if (!dateStr) return "";
+  try {
+    const [y, m, d] = dateStr.split("-");
+    return `${d}.${m}.${y}`;
+  } catch (e) {
+    return dateStr;
+  }
+}
+function roundStatus(round) {
+  const t = todayStr();
+  if (t < round.startDate) return "geplant";
+  if (t > round.endDate) return "beendet";
+  return "aktiv";
+}
+const STATUS_LABEL = { geplant: "Geplant", aktiv: "Aktiv", beendet: "Beendet" };
+const STATUS_COLOR = { geplant: "#8A8A7A", aktiv: "#3F6B4A", beendet: "#4C7A94" };
+
+function App() {
+  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [roomCode, setRoomCode] = useState("");
+  const [name, setName] = useState("");
+  const [joined, setJoined] = useState(false);
+  const [tab, setTab] = useState("ziele");
+  const [destinations, setDestinations] = useState([]);
+  const [members, setMembers] = useState([]);
+  const [rounds, setRounds] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [recentProfiles, setRecentProfiles] = useState([]);
+
+  useEffect(() => {
+    try {
+      const recentRaw = localStorage.getItem("ausflug_recent");
+      if (recentRaw) setRecentProfiles(JSON.parse(recentRaw) || []);
+    } catch (e) {}
+    try {
+      const raw = localStorage.getItem("ausflug_profile");
+      if (raw) {
+        const p = JSON.parse(raw);
+        if (p.roomCode && p.name) {
+          setRoomCode(p.roomCode);
+          setName(p.name);
+          setJoined(true);
+        }
+      }
+    } catch (e) {}
+    setLoadingProfile(false);
+  }, []);
+
+  const rememberProfile = (rc, n) => {
+    localStorage.setItem("ausflug_profile", JSON.stringify({ roomCode: rc, name: n }));
+    setRecentProfiles((prev) => {
+      const filtered = prev.filter((p) => !(p.roomCode === rc && p.name === n));
+      const next = [{ roomCode: rc, name: n }, ...filtered].slice(0, 6);
+      localStorage.setItem("ausflug_recent", JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const destKey = "destinations";
+  const membersKey = "members";
+  const roundsKey = "rounds";
+
+  const ensureMembership = useCallback(async (roomCode, name) => {
+    const raw = await dbGet(roomCode, membersKey);
+    const list = raw || [];
+    if (!list.includes(name)) {
+      const next = [...list, name];
+      await dbSet(roomCode, membersKey, next);
+      return next;
+    }
+    return list;
+  }, []);
+
+  const refresh = useCallback(async () => {
+    if (!roomCode) return;
+    setBusy(true);
+    const destRaw = await dbGet(roomCode, destKey);
+    setDestinations(destRaw || []);
+    const membersRaw = await dbGet(roomCode, membersKey);
+    setMembers(membersRaw || []);
+    const roundsRaw = await dbGet(roomCode, roundsKey);
+    setRounds(roundsRaw || []);
+    setBusy(false);
+  }, [roomCode]);
+
+  useEffect(() => {
+    if (!joined) return;
+    (async () => {
+      await ensureMembership(roomCode, name);
+      await refresh();
+    })();
+    const interval = setInterval(refresh, REFRESH_MS);
+    return () => clearInterval(interval);
+  }, [joined, refresh]);
+
+  const handleJoin = () => {
+    if (!roomCode.trim() || !name.trim()) return;
+    const rc = roomCode.trim().toUpperCase();
+    const n = name.trim();
+    setRoomCode(rc);
+    setName(n);
+    rememberProfile(rc, n);
+    setJoined(true);
+  };
+  const quickJoin = (profile) => {
+    setRoomCode(profile.roomCode);
+    setName(profile.name);
+    rememberProfile(profile.roomCode, profile.name);
+    setJoined(true);
+  };
+  const switchPool = () => setJoined(false);
+
+  const saveDestinations = async (next) => {
+    setDestinations(next);
+    await dbSet(roomCode, destKey, next);
+  };
+  const addDestination = async (dest) => {
+    const next = [...destinations, { ...dest, id: uid(), archived: false, archivedAt: null, archivedPoints: null, proposedBy: name }];
+    await saveDestinations(next);
+  };
+  const removeDestination = async (id) => {
+    const next = destinations.filter((d) => d.id !== id);
+    await saveDestinations(next);
+  };
+
+  const activeDestinations = destinations.filter((d) => !d.archived);
+  const archivedDestinations = destinations.filter((d) => d.archived);
+
+  const archiveDestination = async (id) => {
+    const candidateRounds = rounds
+      .filter((r) => r.destinationIds.includes(id) && roundStatus(r) === "beendet")
+      .sort((a, b) => (a.endDate < b.endDate ? 1 : -1));
+    let pts = null;
+    if (candidateRounds.length > 0) {
+      const votes = await fetchRoundVotes(roomCode, candidateRounds[0].id);
+      let sum = 0;
+      Object.values(votes).forEach((v) => { if (v && v[id] !== undefined) sum += Number(v[id]) || 0; });
+      pts = sum;
+    }
+    const next = destinations.map((d) =>
+      d.id === id ? { ...d, archived: true, archivedAt: new Date().toISOString(), archivedPoints: pts } : d
+    );
+    await saveDestinations(next);
+  };
+  const reactivateDestination = async (id) => {
+    const next = destinations.map((d) =>
+      d.id === id ? { ...d, archived: false, archivedAt: null, archivedPoints: null } : d
+    );
+    await saveDestinations(next);
+  };
+
+  const saveRounds = async (next) => {
+    setRounds(next);
+    await dbSet(roomCode, roundsKey, next);
+  };
+  const createRound = async (roundData) => {
+    const next = [...rounds, { ...roundData, id: uid(), createdBy: name, createdAt: new Date().toISOString() }];
+    await saveRounds(next);
+  };
+  const deleteRound = async (id) => {
+    const next = rounds.filter((r) => r.id !== id);
+    await saveRounds(next);
+  };
+
+  if (loadingProfile) return <div style={S.loadingScreen}>Lädt …</div>;
+  if (!joined) return <JoinScreen roomCode={roomCode} setRoomCode={setRoomCode} name={name} setName={setName} onJoin={handleJoin} recentProfiles={recentProfiles} onQuickJoin={quickJoin} />;
+
+  return (
+    <div style={S.app}>
+      <Header roomCode={roomCode} name={name} onRefresh={refresh} onSwitchPool={switchPool} busy={busy} />
+      <div style={S.content}>
+        {tab === "ziele" && (
+          <ZieleTab destinations={activeDestinations} onAdd={addDestination} onRemove={removeDestination} onArchive={archiveDestination} />
+        )}
+        {tab === "runden" && (
+          <RundenTab
+            rounds={rounds}
+            destinations={destinations}
+            activeDestinations={activeDestinations}
+            members={members}
+            roomCode={roomCode}
+            name={name}
+            onCreateRound={createRound}
+            onDeleteRound={deleteRound}
+          />
+        )}
+        {tab === "archiv" && (
+          <ArchivTab destinations={archivedDestinations} onReactivate={reactivateDestination} />
+        )}
+      </div>
+      <TabBar tab={tab} setTab={setTab} />
+    </div>
+  );
+}
+
+function JoinScreen({ roomCode, setRoomCode, name, setName, onJoin, recentProfiles, onQuickJoin }) {
+  return (
+    <div style={S.joinWrap}>
+      <div style={S.joinCard}>
+        <div style={S.joinIcon}>🧭</div>
+        <h1 style={S.joinTitle}>Ausflugs-Pool</h1>
+        <p style={S.joinSub}>Sammelt Ziele, vergebt Punkte, findet eure gemeinsame Prioritätenliste.</p>
+
+        {recentProfiles && recentProfiles.length > 0 && (
+          <div style={{ marginBottom: 18 }}>
+            <label style={S.label}>Zuletzt genutzt</label>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {recentProfiles.map((p, i) => (
+                <button key={i} style={S.recentBtn} onClick={() => onQuickJoin(p)}>
+                  <span style={{ fontWeight: 700 }}>{p.roomCode}</span>
+                  <span style={{ color: "#8A8A7A" }}> · {p.name}</span>
+                  <span style={{ marginLeft: "auto" }}>→</span>
+                </button>
+              ))}
+            </div>
+            <div style={S.orDivider}>oder neu / anders beitreten</div>
+          </div>
+        )}
+
+        <label style={S.label}>Familien-Code</label>
+        <input style={S.input} placeholder="z. B. MEYER26" value={roomCode} onChange={(e) => setRoomCode(e.target.value.toUpperCase())} maxLength={20} />
+        <p style={S.hint}>Jeder in der Familie gibt denselben Code ein – so landen alle Stimmen im selben Pool.</p>
+        <label style={S.label}>Dein Name</label>
+        <input style={S.input} placeholder="z. B. Papa, Lina, Oma..." value={name} onChange={(e) => setName(e.target.value)} maxLength={24} />
+        <button style={{ ...S.primaryBtn, opacity: roomCode.trim() && name.trim() ? 1 : 0.45 }} disabled={!(roomCode.trim() && name.trim())} onClick={onJoin}>
+          Beitreten →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Header({ roomCode, name, onRefresh, onSwitchPool, busy }) {
+  return (
+    <div style={S.header}>
+      <div>
+        <div style={S.headerEyebrow}>FAMILIEN-CODE</div>
+        <div style={S.headerName2}>{roomCode}</div>
+      </div>
+      <div style={S.headerRight}>
+        <div style={S.headerName}>{name}</div>
+        <button style={S.iconBtn} onClick={onSwitchPool} title="Pool wechseln"><span>🔀</span></button>
+        <button style={S.iconBtn} onClick={onRefresh} title="Aktualisieren">
+          <span className={busy ? "spin" : ""} style={{ display: "inline-block" }}>↻</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function TabBar({ tab, setTab }) {
+  const items = [
+    { id: "ziele", label: "Ziele", emoji: "📍" },
+    { id: "runden", label: "Runden", emoji: "🗳️" },
+    { id: "archiv", label: "Archiv", emoji: "🗂️" },
+  ];
+  return (
+    <div style={S.tabBar}>
+      {items.map(({ id, label, emoji }) => (
+        <button key={id} onClick={() => setTab(id)} style={{ ...S.tabBtn, color: tab === id ? "#3F6B4A" : "#8A8A7A" }}>
+          <span style={{ fontSize: 18 }}>{emoji}</span>
+          <span style={{ fontWeight: tab === id ? 700 : 500 }}>{label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ZieleTab({ destinations, onAdd, onRemove, onArchive }) {
+  const [showForm, setShowForm] = useState(false);
+  return (
+    <div style={S.tabContent}>
+      {!showForm && <button style={S.addBtn} onClick={() => setShowForm(true)}>+ Neues Ziel vorschlagen</button>}
+      {showForm && <AddForm onCancel={() => setShowForm(false)} onSubmit={(d) => { onAdd(d); setShowForm(false); }} />}
+      {destinations.length === 0 && !showForm && (
+        <div style={S.emptyState}><span style={{ fontSize: 26 }}>📍</span><p>Noch keine Ziele im Pool. Schlag das erste vor!</p></div>
+      )}
+      {destinations.map((d) => <DestCard key={d.id} d={d} onRemove={onRemove} onArchive={onArchive} />)}
+    </div>
+  );
+}
+
+function DestCard({ d, onRemove, onArchive }) {
+  const cat = CATEGORY.find((c) => c.id === d.category);
+  return (
+    <div style={S.card}>
+      {d.photoUrl && <img src={d.photoUrl} alt={d.name} style={S.cardImg} />}
+      <div style={S.cardBody}>
+        <div style={S.cardTopRow}>
+          <div style={S.cardTitle}>{d.name}</div>
+          <button style={S.closeBtn} onClick={() => onRemove(d.id)}>✕</button>
+        </div>
+        {d.desc && <div style={S.cardDesc}>{d.desc}</div>}
+        <div style={S.tagRow}>
+          {cat && <span style={{ ...S.tag, background: cat.color + "22", color: cat.color }}>{cat.emoji} {cat.label}</span>}
+          {d.duration && <span style={S.tag}>⏱ {DURATION.find((x) => x.id === d.duration)?.label}</span>}
+          {d.cost && <span style={S.tag}>💰 {COST.find((x) => x.id === d.cost)?.label}</span>}
+        </div>
+        <div style={S.cardFooter}>
+          <span style={S.proposedBy}>Vorschlag von {d.proposedBy}</span>
+          <button style={S.visitedBtn} onClick={() => onArchive(d.id)}>✓ Waren dort</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AddForm({ onSubmit, onCancel }) {
+  const [name, setName] = useState("");
+  const [desc, setDesc] = useState("");
+  const [category, setCategory] = useState("draussen");
+  const [duration, setDuration] = useState("halbtag");
+  const [cost, setCost] = useState("guenstig");
+  const [photoUrl, setPhotoUrl] = useState("");
+  return (
+    <div style={S.formCard}>
+      <input style={S.input} placeholder="Name des Ziels" value={name} onChange={(e) => setName(e.target.value)} />
+      <textarea style={{ ...S.input, minHeight: 56, resize: "vertical" }} placeholder="Kurze Beschreibung (optional)" value={desc} onChange={(e) => setDesc(e.target.value)} />
+      <input style={S.input} placeholder="Foto-URL (optional)" value={photoUrl} onChange={(e) => setPhotoUrl(e.target.value)} />
+      <div style={S.formRow}>{CATEGORY.map((c) => <Chip key={c.id} active={category === c.id} onClick={() => setCategory(c.id)}>{c.label}</Chip>)}</div>
+      <div style={S.formRow}>{DURATION.map((d) => <Chip key={d.id} active={duration === d.id} onClick={() => setDuration(d.id)}>{d.label}</Chip>)}</div>
+      <div style={S.formRow}>{COST.map((c) => <Chip key={c.id} active={cost === c.id} onClick={() => setCost(c.id)}>{c.label}</Chip>)}</div>
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <button style={S.secondaryBtn} onClick={onCancel}>Abbrechen</button>
+        <button style={{ ...S.primaryBtn, flex: 1, opacity: name.trim() ? 1 : 0.45 }} disabled={!name.trim()}
+          onClick={() => onSubmit({ name: name.trim(), desc: desc.trim(), category, duration, cost, photoUrl: photoUrl.trim() })}>
+          Hinzufügen
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Chip({ active, onClick, children }) {
+  return <button onClick={onClick} style={{ ...S.chip, background: active ? "#3F6B4A" : "#EFEDE3", color: active ? "#F7F4EC" : "#4A4A3E" }}>{children}</button>;
+}
+
+function RundenTab({ rounds, destinations, activeDestinations, members, roomCode, name, onCreateRound, onDeleteRound }) {
+  const [mode, setMode] = useState("list"); // list | create | detail
+  const [selectedId, setSelectedId] = useState(null);
+
+  if (mode === "create") {
+    return (
+      <RoundCreateForm
+        activeDestinations={activeDestinations}
+        existingCount={rounds.length}
+        onCancel={() => setMode("list")}
+        onSubmit={(data) => { onCreateRound(data); setMode("list"); }}
+      />
+    );
+  }
+
+  if (mode === "detail" && selectedId) {
+    const round = rounds.find((r) => r.id === selectedId);
+    if (!round) { setMode("list"); return null; }
+    return (
+      <RoundDetail
+        round={round}
+        destinations={destinations}
+        members={members}
+        roomCode={roomCode}
+        name={name}
+        onBack={() => { setMode("list"); setSelectedId(null); }}
+        onDelete={() => { onDeleteRound(round.id); setMode("list"); setSelectedId(null); }}
+      />
+    );
+  }
+
+  const sorted = [...rounds].sort((a, b) => (a.startDate < b.startDate ? 1 : -1));
+
+  return (
+    <div style={S.tabContent}>
+      <button style={S.addBtn} onClick={() => setMode("create")}>+ Neue Runde erstellen</button>
+      {sorted.length === 0 && (
+        <div style={S.emptyState}><span style={{ fontSize: 26 }}>🗳️</span><p>Noch keine Runde erstellt. Legt eine an, um mit Start-/Enddatum abzustimmen.</p></div>
+      )}
+      {sorted.map((r) => {
+        const status = roundStatus(r);
+        return (
+          <button key={r.id} style={S.roundCard} onClick={() => { setSelectedId(r.id); setMode("detail"); }}>
+            <div style={S.roundCardTop}>
+              <span style={S.roundAlias}>{r.alias}</span>
+              <span style={{ ...S.statusBadge, background: STATUS_COLOR[status] + "22", color: STATUS_COLOR[status] }}>{STATUS_LABEL[status]}</span>
+            </div>
+            <div style={S.roundDates}>{formatDate(r.startDate)} – {formatDate(r.endDate)} · {r.destinationIds.length} Ziele</div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function RoundCreateForm({ activeDestinations, existingCount, onSubmit, onCancel }) {
+  const [alias, setAlias] = useState(`Runde ${existingCount + 1}`);
+  const [startDate, setStartDate] = useState(todayStr());
+  const [endDate, setEndDate] = useState(todayStr());
+  const [selectedIds, setSelectedIds] = useState([]);
+
+  const toggle = (id) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const valid = alias.trim() && startDate && endDate && endDate >= startDate && selectedIds.length >= 2;
+
+  return (
+    <div style={S.formCard}>
+      <label style={S.label}>Alias / Name der Runde</label>
+      <input style={S.input} value={alias} onChange={(e) => setAlias(e.target.value)} placeholder="z. B. Sommerferien 2026" />
+
+      <label style={S.label}>Startet am</label>
+      <input style={S.input} type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+
+      <label style={S.label}>Offen bis</label>
+      <input style={S.input} type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+      {endDate < startDate && <p style={{ ...S.hint, color: "#8a2e2e" }}>Enddatum liegt vor dem Startdatum.</p>}
+
+      <label style={S.label}>Ziele in dieser Runde ({selectedIds.length} ausgewählt)</label>
+      {activeDestinations.length === 0 && <p style={S.hint}>Noch keine Ziele im Pool – erst im Tab "Ziele" welche anlegen.</p>}
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+        {activeDestinations.map((d) => (
+          <label key={d.id} style={S.checkRow}>
+            <input type="checkbox" checked={selectedIds.includes(d.id)} onChange={() => toggle(d.id)} />
+            <span>{d.name}</span>
+          </label>
+        ))}
+      </div>
+      {activeDestinations.length > 0 && selectedIds.length < 2 && <p style={S.hint}>Mindestens 2 Ziele auswählen.</p>}
+
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <button style={S.secondaryBtn} onClick={onCancel}>Abbrechen</button>
+        <button
+          style={{ ...S.primaryBtn, flex: 1, opacity: valid ? 1 : 0.45 }}
+          disabled={!valid}
+          onClick={() => onSubmit({ alias: alias.trim(), startDate, endDate, destinationIds: selectedIds })}
+        >
+          Runde erstellen
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function RoundDetail({ round, destinations, members, roomCode, name, onBack, onDelete }) {
+  const status = roundStatus(round);
+  const roundDests = destinations.filter((d) => round.destinationIds.includes(d.id));
+  const [votes, setVotes] = useState({});
+  const [myDraft, setMyDraft] = useState({});
+  const [loadingVotes, setLoadingVotes] = useState(status !== "geplant");
+
+  const loadVotes = useCallback(async () => {
+    if (status === "geplant") return;
+    setLoadingVotes(true);
+    const v = await fetchRoundVotes(roomCode, round.id);
+    setVotes(v);
+    setMyDraft(v[name] || {});
+    setLoadingVotes(false);
+  }, [roomCode, round.id, name, status]);
+
+  useEffect(() => { loadVotes(); }, [loadVotes]);
+
+  const saveMyVotes = async (draft) => {
+    setMyDraft(draft);
+    await dbSet(roomCode, `votes:${round.id}:${name}`, draft);
+    setVotes((prev) => ({ ...prev, [name]: draft }));
+  };
+
+  const ranking = useMemo(() => {
+    const sums = {};
+    roundDests.forEach((d) => (sums[d.id] = 0));
+    Object.values(votes).forEach((v) => {
+      Object.entries(v || {}).forEach(([destId, pts]) => {
+        if (sums[destId] !== undefined) sums[destId] += Number(pts) || 0;
+      });
+    });
+    const arr = roundDests.map((d) => ({ ...d, points: sums[d.id] || 0 }));
+    arr.sort((a, b) => b.points - a.points);
+    let rank = 0, lastPoints = null;
+    return arr.map((d, i) => {
+      if (d.points !== lastPoints) { rank = i + 1; lastPoints = d.points; }
+      return { ...d, rank };
+    });
+  }, [roundDests, votes]);
+
+  const completedVoters = members.filter((m) => votes[m] && Object.keys(votes[m]).length === roundDests.length);
+  const pendingVoters = members.filter((m) => !completedVoters.includes(m));
+
+  return (
+    <div style={S.tabContent}>
+      <button style={S.backBtn} onClick={onBack}>← Zurück zu allen Runden</button>
+
+      <div style={S.roundHeaderCard}>
+        <div style={S.roundCardTop}>
+          <span style={S.roundAliasBig}>{round.alias}</span>
+          <span style={{ ...S.statusBadge, background: STATUS_COLOR[status] + "22", color: STATUS_COLOR[status] }}>{STATUS_LABEL[status]}</span>
+        </div>
+        <div style={S.roundDates}>{formatDate(round.startDate)} – {formatDate(round.endDate)}</div>
+      </div>
+
+      {status === "geplant" && (
+        <>
+          <div style={S.voteHint}>Diese Runde startet am {formatDate(round.startDate)}. Bis dahin ist noch keine Abstimmung möglich.</div>
+          <div style={S.sectionLabel}>Vorschau: {roundDests.length} Ziele</div>
+          {roundDests.map((d) => <div key={d.id} style={S.previewRow}>{d.name}</div>)}
+          <button style={S.dangerBtn} onClick={onDelete}>Runde löschen</button>
+        </>
+      )}
+
+      {status !== "geplant" && loadingVotes && <div style={S.voteHint}>Lädt Stimmen …</div>}
+
+      {status === "aktiv" && !loadingVotes && (
+        <>
+          <VotingBlock destinations={roundDests} myVotes={myDraft} onSave={saveMyVotes} />
+          <div style={S.sectionLabel}>Zwischenstand (live)</div>
+          {pendingVoters.length > 0 && <div style={S.pendingBanner}>Noch offen: {pendingVoters.join(", ")}</div>}
+          <RankingList ranking={ranking} />
+        </>
+      )}
+
+      {status === "beendet" && !loadingVotes && (
+        <>
+          <div style={S.sectionLabel}>Ergebnis</div>
+          <RankingList ranking={ranking} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function VotingBlock({ destinations, myVotes, onSave }) {
+  const n = destinations.length;
+  const [draft, setDraft] = useState({});
+  useEffect(() => { setDraft(myVotes || {}); }, [myVotes, destinations.length]);
+
+  const usedPoints = new Set(Object.values(draft).filter((v) => v !== undefined && v !== ""));
+  const allNumbers = Array.from({ length: n }, (_, i) => i + 1);
+  const completed = Object.keys(draft).length === n && new Set(Object.values(draft)).size === n;
+
+  const setPoint = (destId, val) => {
+    const next = { ...draft };
+    if (val === "") delete next[destId]; else next[destId] = Number(val);
+    setDraft(next);
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={S.voteHint}>Vergib Punkte von 1 bis {n} — dein wichtigstes Ziel bekommt {n}, jede Zahl nur einmal.</div>
+      {destinations.map((d) => {
+        const current = draft[d.id] ?? "";
+        return (
+          <div key={d.id} style={S.voteRow}>
+            <div style={S.voteName}>{d.name}</div>
+            <select style={{ ...S.select, borderColor: current ? "#3F6B4A" : "#D8D5C6" }} value={current} onChange={(e) => setPoint(d.id, e.target.value)}>
+              <option value="">–</option>
+              {allNumbers.map((num) => <option key={num} value={num} disabled={usedPoints.has(num) && current !== num}>{num}</option>)}
+            </select>
+          </div>
+        );
+      })}
+      <button style={{ ...S.primaryBtn, opacity: completed ? 1 : 0.45 }} disabled={!completed} onClick={() => onSave(draft)}>
+        {completed ? "Bewertung speichern" : `Noch ${n - Object.keys(draft).length} Ziel(e) offen`}
+      </button>
+    </div>
+  );
+}
+
+function RankingList({ ranking }) {
+  if (ranking.length === 0) return <div style={S.emptyState}><p>Noch keine Stimmen abgegeben.</p></div>;
+  const maxPoints = Math.max(...ranking.map((r) => r.points), 1);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {ranking.map((d) => (
+        <div key={d.id} style={S.rankRow}>
+          <div style={S.rankBadge}>{d.rank}</div>
+          <div style={{ flex: 1 }}>
+            <div style={S.rankName}>{d.name}</div>
+            <div style={S.rankBarTrack}><div style={{ ...S.rankBarFill, width: `${Math.max(6, (d.points / maxPoints) * 100)}%` }} /></div>
+          </div>
+          <div style={S.rankPoints}>{d.points}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ArchivTab({ destinations, onReactivate }) {
+  if (destinations.length === 0) {
+    return (
+      <div style={S.tabContent}>
+        <div style={S.emptyState}><span style={{ fontSize: 26 }}>🗂️</span><p>Noch nichts archiviert. Ziele, bei denen ihr wart, landen hier – mit der Punktzahl aus der letzten beendeten Runde, falls vorhanden.</p></div>
+      </div>
+    );
+  }
+  const sorted = [...destinations].sort((a, b) => new Date(b.archivedAt) - new Date(a.archivedAt));
+  return (
+    <div style={S.tabContent}>
+      {sorted.map((d) => {
+        const cat = CATEGORY.find((c) => c.id === d.category);
+        return (
+          <div key={d.id} style={{ ...S.card, opacity: 0.85 }}>
+            {d.photoUrl && <img src={d.photoUrl} alt={d.name} style={S.cardImg} />}
+            <div style={S.cardBody}>
+              <div style={S.cardTitle}>{d.name}</div>
+              <div style={S.tagRow}>
+                {cat && <span style={{ ...S.tag, background: cat.color + "22", color: cat.color }}>{cat.emoji} {cat.label}</span>}
+              </div>
+              <div style={S.archiveInfo}>
+                Archiviert am {formatDate(d.archivedAt ? d.archivedAt.slice(0, 10) : "")}
+                {d.archivedPoints !== null && d.archivedPoints !== undefined ? ` · ${d.archivedPoints} Punkte` : " · kein Rundenergebnis"}
+              </div>
+              <div style={S.cardFooter}>
+                <span style={S.proposedBy}>Vorschlag von {d.proposedBy}</span>
+                <button style={S.visitedBtn} onClick={() => onReactivate(d.id)}>↺ Wieder einbringen</button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const S = {
+  loadingScreen: { height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: "#3F6B4A", fontWeight: 600 },
+  joinWrap: { minHeight: "100vh", background: "linear-gradient(180deg, #2B4A33 0%, #223022 100%)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 },
+  joinCard: { background: "#F7F4EC", borderRadius: 20, padding: "32px 24px", width: "100%", maxWidth: 380, boxShadow: "0 20px 40px rgba(0,0,0,0.25)" },
+  joinIcon: { width: 52, height: 52, borderRadius: 14, background: "#3F6B4A", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 14, fontSize: 26 },
+  joinTitle: { fontFamily: "'Big Shoulders Display', sans-serif", fontWeight: 800, fontSize: 34, color: "#223022", margin: "0 0 6px 0" },
+  joinSub: { fontSize: 14, color: "#5B5B4E", lineHeight: 1.5, margin: "0 0 22px 0" },
+  label: { fontSize: 12, fontWeight: 700, color: "#3F6B4A", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 6, display: "block" },
+  input: { width: "100%", padding: "12px 14px", borderRadius: 10, border: "1.5px solid #D8D5C6", fontSize: 15, fontFamily: "'Inter', sans-serif", marginBottom: 6, outline: "none", background: "#FFFFFF", color: "#223022" },
+  hint: { fontSize: 12, color: "#8A8A7A", margin: "0 0 18px 0", lineHeight: 1.4 },
+  primaryBtn: { width: "100%", padding: "13px 16px", borderRadius: 10, border: "none", background: "#3F6B4A", color: "#F7F4EC", fontWeight: 700, fontSize: 15, cursor: "pointer" },
+  secondaryBtn: { padding: "13px 16px", borderRadius: 10, border: "1.5px solid #D8D5C6", background: "transparent", color: "#5B5B4E", fontWeight: 600, fontSize: 14, cursor: "pointer" },
+  dangerBtn: { padding: "10px 14px", borderRadius: 10, border: "1.5px solid #E0BEBE", background: "transparent", color: "#8a2e2e", fontWeight: 600, fontSize: 13, cursor: "pointer" },
+  app: { fontFamily: "'Inter', sans-serif", background: "#EFEDE3", minHeight: "100vh", display: "flex", flexDirection: "column", maxWidth: 480, margin: "0 auto" },
+  header: { background: "#223022", padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" },
+  headerEyebrow: { fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: "#9CBBA3", letterSpacing: 1 },
+  headerName2: { fontFamily: "'Big Shoulders Display', sans-serif", fontWeight: 800, fontSize: 22, color: "#F7F4EC", letterSpacing: 1 },
+  headerRight: { display: "flex", alignItems: "center", gap: 10 },
+  headerName: { color: "#D9D6C6", fontSize: 13, fontWeight: 600 },
+  iconBtn: { background: "rgba(255,255,255,0.12)", border: "none", borderRadius: 8, width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#F7F4EC", fontSize: 15 },
+  content: { flex: 1, overflowY: "auto", padding: "16px 16px 8px" },
+  tabContent: { display: "flex", flexDirection: "column", gap: 10 },
+  tabBar: { display: "flex", borderTop: "1px solid #E0DDCE", background: "#F7F4EC" },
+  tabBtn: { flex: 1, background: "none", border: "none", padding: "10px 0 12px", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, fontSize: 11, cursor: "pointer" },
+  addBtn: { padding: "12px", borderRadius: 12, border: "1.5px dashed #B9C8B6", background: "#E4EBE1", color: "#3F6B4A", fontWeight: 700, fontSize: 14, cursor: "pointer" },
+  formCard: { background: "#F7F4EC", borderRadius: 14, padding: 14, display: "flex", flexDirection: "column", gap: 4 },
+  formRow: { display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 4 },
+  chip: { padding: "6px 12px", borderRadius: 20, border: "none", fontSize: 12.5, fontWeight: 600, cursor: "pointer" },
+  checkRow: { display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "#223022", background: "#FFFFFF", padding: "9px 12px", borderRadius: 8, border: "1px solid #E0DDCE" },
+  emptyState: { display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "32px 20px", textAlign: "center", color: "#8A8A7A", fontSize: 13.5 },
+  sectionLabel: { fontSize: 11, fontWeight: 700, color: "#8A8A7A", textTransform: "uppercase", letterSpacing: 0.6, margin: "10px 0 -2px 4px" },
+  card: { background: "#F7F4EC", borderRadius: 14, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" },
+  cardImg: { width: "100%", height: 130, objectFit: "cover", display: "block" },
+  cardBody: { padding: "12px 14px" },
+  cardTopRow: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" },
+  cardTitle: { fontWeight: 700, fontSize: 15.5, color: "#223022" },
+  closeBtn: { background: "none", border: "none", color: "#B9B6A6", cursor: "pointer", fontSize: 14 },
+  cardDesc: { fontSize: 13, color: "#6B6B5D", marginTop: 3, lineHeight: 1.4 },
+  tagRow: { display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 },
+  tag: { display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 600, padding: "3px 8px", borderRadius: 20, background: "#EFEDE3", color: "#6B6B5D" },
+  cardFooter: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 },
+  proposedBy: { fontSize: 11, color: "#9A9A8A", fontStyle: "italic" },
+  visitedBtn: { fontSize: 11, fontWeight: 700, padding: "5px 10px", borderRadius: 20, border: "1px solid #D8D5C6", background: "transparent", color: "#5B5B4E", cursor: "pointer" },
+  voteHint: { fontSize: 13, color: "#5B5B4E", background: "#E4EBE1", padding: "10px 12px", borderRadius: 10, lineHeight: 1.4 },
+  pendingBanner: { fontSize: 12.5, color: "#8A5A2A", background: "#F5E6D3", padding: "9px 12px", borderRadius: 10, lineHeight: 1.4, fontWeight: 600 },
+  voteRow: { display: "flex", alignItems: "center", justifyContent: "space-between", background: "#FFFFFF", borderRadius: 12, padding: "10px 12px" },
+  voteName: { fontSize: 14, fontWeight: 600, color: "#223022", flex: 1, marginRight: 10 },
+  select: { fontWeight: 700, fontSize: 15, padding: "6px 10px", borderRadius: 8, border: "1.5px solid #D8D5C6", background: "#FFFFFF", color: "#223022", width: 60 },
+  rankRow: { display: "flex", alignItems: "center", gap: 12, background: "#FFFFFF", borderRadius: 12, padding: "10px 14px" },
+  rankBadge: { fontFamily: "'Big Shoulders Display', sans-serif", fontWeight: 800, fontSize: 20, color: "#3F6B4A", width: 28, textAlign: "center" },
+  rankName: { fontSize: 14, fontWeight: 600, color: "#223022", marginBottom: 5 },
+  rankBarTrack: { height: 6, background: "#EFEDE3", borderRadius: 4, overflow: "hidden" },
+  rankBarFill: { height: "100%", background: "linear-gradient(90deg, #3F6B4A, #6FA07C)", borderRadius: 4 },
+  rankPoints: { fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, fontSize: 16, color: "#C97A3D", minWidth: 28, textAlign: "right" },
+  archiveInfo: { fontSize: 11.5, color: "#8A8A7A", marginTop: 6, fontStyle: "italic" },
+  recentBtn: { display: "flex", alignItems: "center", gap: 2, width: "100%", padding: "10px 12px", borderRadius: 10, border: "1.5px solid #D8D5C6", background: "#FFFFFF", color: "#223022", fontSize: 13.5, cursor: "pointer" },
+  orDivider: { fontSize: 11, color: "#B9B6A6", textAlign: "center", margin: "12px 0 -4px" },
+  roundCard: { textAlign: "left", background: "#F7F4EC", borderRadius: 14, padding: "12px 14px", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", gap: 4 },
+  roundCardTop: { display: "flex", justifyContent: "space-between", alignItems: "center" },
+  roundAlias: { fontWeight: 700, fontSize: 15, color: "#223022" },
+  roundAliasBig: { fontFamily: "'Big Shoulders Display', sans-serif", fontWeight: 800, fontSize: 22, color: "#223022" },
+  roundDates: { fontSize: 12, color: "#8A8A7A" },
+  statusBadge: { fontSize: 10.5, fontWeight: 700, padding: "3px 9px", borderRadius: 20, textTransform: "uppercase", letterSpacing: 0.4 },
+  backBtn: { alignSelf: "flex-start", background: "none", border: "none", color: "#3F6B4A", fontWeight: 700, fontSize: 13, cursor: "pointer", padding: "4px 0" },
+  roundHeaderCard: { background: "#F7F4EC", borderRadius: 14, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 4 },
+  previewRow: { background: "#F7F4EC", borderRadius: 10, padding: "9px 12px", fontSize: 13.5, color: "#223022" },
+};
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(React.createElement(App));
+</script>
+
+<script>
+  function bootApp() {
+    try {
+      var src = document.getElementById("app-source").textContent;
+      var compiled = Babel.transform(src, {
+        presets: [["react", { runtime: "classic" }]],
+      }).code;
+      (0, eval)(compiled);
+    } catch (err) {
+      var root = document.getElementById("root");
+      root.innerHTML =
+        '<div style="padding:24px;font-family:sans-serif;color:#8a2e2e;background:#fbeaea;min-height:100vh;">' +
+        "<h3>Fehler beim Ausf&uuml;hren</h3><p style=\"white-space:pre-wrap;\">" +
+        (err && err.message ? err.message : err) +
+        "</p></div>";
+    }
+  }
+  if (document.readyState === "complete" || document.readyState === "interactive") {
+    bootApp();
+  } else {
+    document.addEventListener("DOMContentLoaded", bootApp);
+  }
+</script>
+</body>
+</html>
