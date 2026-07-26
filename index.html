@@ -239,6 +239,10 @@ function App() {
     const next = destinations.filter((d) => d.id !== id);
     await saveDestinations(next);
   };
+  const editDestination = async (id, updates) => {
+    const next = destinations.map((d) => (d.id === id ? { ...d, ...updates } : d));
+    await saveDestinations(next);
+  };
 
   const activeDestinations = destinations.filter((d) => !d.archived);
   const archivedDestinations = destinations.filter((d) => d.archived);
@@ -287,7 +291,7 @@ function App() {
       <Header roomCode={roomCode} name={name} onRefresh={refresh} onSwitchPool={switchPool} busy={busy} />
       <div style={S.content}>
         {tab === "ziele" && (
-          <ZieleTab destinations={activeDestinations} onAdd={addDestination} onRemove={removeDestination} onArchive={archiveDestination} />
+          <ZieleTab destinations={activeDestinations} onAdd={addDestination} onRemove={removeDestination} onArchive={archiveDestination} onEdit={editDestination} />
         )}
         {tab === "runden" && (
           <RundenTab
@@ -399,7 +403,7 @@ function TabBar({ tab, setTab }) {
   );
 }
 
-function ZieleTab({ destinations, onAdd, onRemove, onArchive }) {
+function ZieleTab({ destinations, onAdd, onRemove, onArchive, onEdit }) {
   const [showForm, setShowForm] = useState(false);
   return (
     <div style={S.tabContent}>
@@ -408,20 +412,36 @@ function ZieleTab({ destinations, onAdd, onRemove, onArchive }) {
       {destinations.length === 0 && !showForm && (
         <div style={S.emptyState}><span style={{ fontSize: 26 }}>📍</span><p>Noch keine Ziele im Pool. Schlag das erste vor!</p></div>
       )}
-      {destinations.map((d) => <DestCard key={d.id} d={d} onRemove={onRemove} onArchive={onArchive} />)}
+      {destinations.map((d) => <DestCard key={d.id} d={d} onRemove={onRemove} onArchive={onArchive} onEdit={onEdit} />)}
     </div>
   );
 }
 
-function DestCard({ d, onRemove, onArchive }) {
+function DestCard({ d, onRemove, onArchive, onEdit }) {
+  const [editing, setEditing] = useState(false);
   const cat = CATEGORY.find((c) => c.id === d.category);
+
+  if (editing) {
+    return (
+      <AddForm
+        initial={d}
+        submitLabel="Speichern"
+        onCancel={() => setEditing(false)}
+        onSubmit={(updated) => { onEdit(d.id, updated); setEditing(false); }}
+      />
+    );
+  }
+
   return (
     <div style={S.card}>
       {d.photoUrl && <img src={d.photoUrl} alt={d.name} style={S.cardImg} />}
       <div style={S.cardBody}>
         <div style={S.cardTopRow}>
           <div style={S.cardTitle}>{d.name}</div>
-          <button style={S.closeBtn} onClick={() => onRemove(d.id)}>✕</button>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button style={S.closeBtn} onClick={() => setEditing(true)} title="Bearbeiten">✏️</button>
+            <button style={S.closeBtn} onClick={() => onRemove(d.id)} title="Löschen">✕</button>
+          </div>
         </div>
         {d.desc && <div style={S.cardDesc}>{d.desc}</div>}
         <div style={S.tagRow}>
@@ -438,13 +458,13 @@ function DestCard({ d, onRemove, onArchive }) {
   );
 }
 
-function AddForm({ onSubmit, onCancel }) {
-  const [name, setName] = useState("");
-  const [desc, setDesc] = useState("");
-  const [category, setCategory] = useState("draussen");
-  const [duration, setDuration] = useState("halbtag");
-  const [cost, setCost] = useState("guenstig");
-  const [photoUrl, setPhotoUrl] = useState("");
+function AddForm({ onSubmit, onCancel, initial, submitLabel }) {
+  const [name, setName] = useState(initial?.name || "");
+  const [desc, setDesc] = useState(initial?.desc || "");
+  const [category, setCategory] = useState(initial?.category || "draussen");
+  const [duration, setDuration] = useState(initial?.duration || "halbtag");
+  const [cost, setCost] = useState(initial?.cost || "guenstig");
+  const [photoUrl, setPhotoUrl] = useState(initial?.photoUrl || "");
   return (
     <div style={S.formCard}>
       <input style={S.input} placeholder="Name des Ziels" value={name} onChange={(e) => setName(e.target.value)} />
@@ -457,7 +477,7 @@ function AddForm({ onSubmit, onCancel }) {
         <button style={S.secondaryBtn} onClick={onCancel}>Abbrechen</button>
         <button style={{ ...S.primaryBtn, flex: 1, opacity: name.trim() ? 1 : 0.45 }} disabled={!name.trim()}
           onClick={() => onSubmit({ name: name.trim(), desc: desc.trim(), category, duration, cost, photoUrl: photoUrl.trim() })}>
-          Hinzufügen
+          {submitLabel || "Hinzufügen"}
         </button>
       </div>
     </div>
