@@ -837,7 +837,7 @@ function LocationAutocomplete({ value, onChange }) {
     <div style={{ position: "relative" }}>
       <input
         style={S.input}
-        placeholder="Ort/Adresse (optional, für Karte + Entfernung)"
+        placeholder="z. B. Steinstraße 14, Konstanz"
         value={value}
         onChange={(e) => { onChange(e.target.value); setShowList(true); }}
         onFocus={() => setShowList(true)}
@@ -887,14 +887,28 @@ function AddForm({ onSubmit, onCancel, initial, submitLabel }) {
 
   return (
     <div style={S.formCard}>
-      <input style={S.input} placeholder="Name des Ziels" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} />
-      <textarea style={{ ...S.input, minHeight: 56, resize: "vertical" }} placeholder="Kurze Beschreibung (optional)" value={desc} maxLength={400} onChange={(e) => setDesc(e.target.value)} />
-      <input style={S.input} type="url" placeholder="Foto-URL (optional, https://...)" value={photoUrl} onChange={(e) => setPhotoUrl(e.target.value)} />
+      <label style={S.label}>Name des Ziels</label>
+      <input style={S.input} placeholder="z. B. Waldlehrpfad Steinbachtal" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} />
+
+      <label style={S.label}>Beschreibung (optional)</label>
+      <textarea style={{ ...S.input, minHeight: 56, resize: "vertical" }} placeholder="Kurze Beschreibung" value={desc} maxLength={400} onChange={(e) => setDesc(e.target.value)} />
+
+      <label style={S.label}>Foto-URL (optional)</label>
+      <input style={S.input} type="url" placeholder="https://..." value={photoUrl} onChange={(e) => setPhotoUrl(e.target.value)} />
       {!photoValid && <p style={{ ...S.hint, color: "#8a2e2e" }}>Foto-URL muss mit http:// oder https:// beginnen.</p>}
+
+      <label style={S.label}>Ort / Adresse (optional)</label>
       <LocationAutocomplete value={location} onChange={setLocation} />
+
+      <label style={S.label}>Kategorie</label>
       <div style={S.formRow}>{CATEGORY.map((c) => <Chip key={c.id} active={category === c.id} onClick={() => setCategory(c.id)}>{c.label}</Chip>)}</div>
+
+      <label style={S.label}>Dauer</label>
       <div style={S.formRow}>{DURATION.map((d) => <Chip key={d.id} active={duration === d.id} onClick={() => setDuration(d.id)}>{d.label}</Chip>)}</div>
+
+      <label style={S.label}>Kosten</label>
       <div style={S.formRow}>{COST.map((c) => <Chip key={c.id} active={cost === c.id} onClick={() => setCost(c.id)}>{c.label}</Chip>)}</div>
+
       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
         <button style={S.secondaryBtn} onClick={onCancel}>Abbrechen</button>
         <button style={{ ...S.primaryBtn, flex: 1, opacity: canSubmit ? 1 : 0.45 }} disabled={!canSubmit} onClick={submit}>
