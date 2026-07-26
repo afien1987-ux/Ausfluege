@@ -93,6 +93,16 @@ async function fetchRoundVotes(roomCode, roundId) {
   }
   return votesObj;
 }
+async function fetchRoundDayVotes(roomCode, roundId) {
+  const prefix = `dayvotes:${roundId}:`;
+  const keys = await dbListKeys(roomCode, prefix);
+  const obj = {};
+  for (const k of keys) {
+    const v = await dbGet(roomCode, k);
+    if (v) obj[k.slice(prefix.length)] = v;
+  }
+  return obj;
+}
 
 const CATEGORY = [
   { id: "draussen", label: "Draußen", emoji: "🌲", color: "#3F6B4A" },
@@ -141,6 +151,7 @@ function App() {
   const [destinations, setDestinations] = useState([]);
   const [members, setMembers] = useState([]);
   const [rounds, setRounds] = useState([]);
+  const [ratingsByDest, setRatingsByDest] = useState({});
   const [busy, setBusy] = useState(false);
   const [recentProfiles, setRecentProfiles] = useState([]);
 
@@ -176,6 +187,7 @@ function App() {
   const destKey = "destinations";
   const membersKey = "members";
   const roundsKey = "rounds";
+  const ratingsPrefix = "ratings:";
 
   const ensureMembership = useCallback(async (roomCode, name) => {
     const raw = await dbGet(roomCode, membersKey);
@@ -197,6 +209,13 @@ function App() {
     setMembers(membersRaw || []);
     const roundsRaw = await dbGet(roomCode, roundsKey);
     setRounds(roundsRaw || []);
+    const ratingKeys = await dbListKeys(roomCode, ratingsPrefix);
+    const ratingsObj = {};
+    for (const k of ratingKeys) {
+      const v = await dbGet(roomCode, k);
+      if (v) ratingsObj[k.slice(ratingsPrefix.length)] = v;
+    }
+    setRatingsByDest(ratingsObj);
     setBusy(false);
   }, [roomCode]);
 
@@ -242,6 +261,15 @@ function App() {
   const editDestination = async (id, updates) => {
     const next = destinations.map((d) => (d.id === id ? { ...d, ...updates } : d));
     await saveDestinations(next);
+  };
+
+  const saveRating = async (destId, updates) => {
+    const current = ratingsByDest[destId] || {};
+    const mine = current[name] || {};
+    const nextEntry = { ...mine, ...updates };
+    const nextForDest = { ...current, [name]: nextEntry };
+    setRatingsByDest((prev) => ({ ...prev, [destId]: nextForDest }));
+    await dbSet(roomCode, `${ratingsPrefix}${destId}`, nextForDest);
   };
 
   const activeDestinations = destinations.filter((d) => !d.archived);
@@ -291,7 +319,7 @@ function App() {
       <Header roomCode={roomCode} name={name} onRefresh={refresh} onSwitchPool={switchPool} busy={busy} />
       <div style={S.content}>
         {tab === "ziele" && (
-          <ZieleTab destinations={activeDestinations} onAdd={addDestination} onRemove={removeDestination} onArchive={archiveDestination} onEdit={editDestination} />
+          <ZieleTab destinations={activeDestinations} onAdd={addDestination} onRemove={removeDestination} onArchive={archiveDestination} onEdit={editDestination} ratingsByDest={ratingsByDest} onRate={saveRating} name={name} />
         )}
         {tab === "runden" && (
           <RundenTab
@@ -403,8 +431,26 @@ function TabBar({ tab, setTab }) {
   );
 }
 
-function ZieleTab({ destinations, onAdd, onRemove, onArchive, onEdit }) {
+function ZieleTab({ destinations, onAdd, onRemove, onArchive, onEdit, ratingsByDest, onRate, name }) {
   const [showForm, setShowForm] = useState(false);
+  const [openId, setOpenId] = useState(null);
+
+  const open = destinations.find((d) => d.id === openId);
+  if (open) {
+    return (
+      <DestDetail
+        d={open}
+        ratings={ratingsByDest[open.id] || {}}
+        onRate={(updates) => onRate(open.id, updates)}
+        onArchive={onArchive}
+        onRemove={onRemove}
+        onEdit={onEdit}
+        onBack={() => setOpenId(null)}
+        name={name}
+      />
+    );
+  }
+
   return (
     <div style={S.tabContent}>
       {!showForm && <button style={S.addBtn} onClick={() => setShowForm(true)}>+ Neues Ziel vorschlagen</button>}
@@ -412,47 +458,201 @@ function ZieleTab({ destinations, onAdd, onRemove, onArchive, onEdit }) {
       {destinations.length === 0 && !showForm && (
         <div style={S.emptyState}><span style={{ fontSize: 26 }}>📍</span><p>Noch keine Ziele im Pool. Schlag das erste vor!</p></div>
       )}
-      {destinations.map((d) => <DestCard key={d.id} d={d} onRemove={onRemove} onArchive={onArchive} onEdit={onEdit} />)}
+      {destinations.map((d) => {
+        const cat = CATEGORY.find((c) => c.id === d.category);
+        const destRatings = ratingsByDest[d.id] || {};
+        const entries = Object.values(destRatings);
+        const avg = entries.length ? (entries.reduce((s, r) => s + (r.stars || 0), 0) / entries.length).toFixed(1) : null;
+        return (
+          <button key={d.id} style={S.card} onClick={() => setOpenId(d.id)}>
+            {d.photoUrl && <img src={d.photoUrl} alt={d.name} style={S.cardImg} />}
+            <div style={S.cardBody}>
+              <div style={S.cardTitle}>{d.name}</div>
+              <div style={S.tagRow}>
+                {cat && <span style={{ ...S.tag, background: cat.color + "22", color: cat.color }}>{cat.emoji} {cat.label}</span>}
+                {d.location && <span style={S.tag}>📍 Ort</span>}
+                {avg && <span style={S.tag}>★ {avg}</span>}
+              </div>
+              <div style={S.proposedBy}>Vorschlag von {d.proposedBy}</div>
+            </div>
+          </button>
+        );
+      })}
     </div>
   );
 }
 
-function DestCard({ d, onRemove, onArchive, onEdit }) {
+function StarRow({ value, onRate, size = 20, readOnly }) {
+  const [hover, setHover] = useState(0);
+  return (
+    <div style={{ display: "flex", gap: 3 }}>
+      {[1, 2, 3, 4, 5].map((n) => {
+        const filled = (hover || value || 0) >= n;
+        return (
+          <span
+            key={n}
+            onMouseEnter={() => !readOnly && setHover(n)}
+            onMouseLeave={() => !readOnly && setHover(0)}
+            onClick={() => !readOnly && onRate && onRate(n)}
+            style={{ cursor: readOnly ? "default" : "pointer", lineHeight: 0 }}
+          >
+            <span style={{ fontSize: size, color: filled ? "#C97A3D" : "#C9C5B4" }}>{filled ? "★" : "☆"}</span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function ReviewBlock({ ratings, onRate, name }) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+  const mine = ratings[name] || {};
+  const entries = Object.entries(ratings).map(([n, v]) => ({ name: n, ...v }));
+  const others = entries.filter((r) => r.name !== name);
+  const avg = entries.length ? (entries.reduce((s, r) => s + (r.stars || 0), 0) / entries.length).toFixed(1) : null;
+
+  const submitComment = () => {
+    if (!draft.trim() || !mine.stars) return;
+    onRate({ stars: mine.stars, text: draft.trim() });
+    setDraft("");
+  };
+
+  return (
+    <div style={S.reviewBlock}>
+      <div style={S.reviewTopRow}>
+        <div>
+          <div style={S.reviewLabel}>Deine Bewertung</div>
+          <StarRow value={mine.stars} onRate={(n) => onRate({ stars: n, text: mine.text })} />
+        </div>
+        {avg && (
+          <div style={S.avgBox}>
+            <span style={{ color: "#C97A3D", fontSize: 14 }}>★</span>
+            <span style={S.avgNum}>{avg}</span>
+            <span style={S.avgCount}>({entries.length})</span>
+          </div>
+        )}
+      </div>
+
+      <button style={S.toggleBtn} onClick={() => setOpen(!open)}>
+        💬 {others.length + (mine.text ? 1 : 0)} Kommentar{others.length + (mine.text ? 1 : 0) === 1 ? "" : "e"} {open ? "▲" : "▼"}
+      </button>
+
+      {open && (
+        <div style={S.commentsWrap}>
+          {mine.text && (
+            <div style={S.commentRow}>
+              <div style={S.commentTop}><span style={S.commentName}>Du</span><StarRow value={mine.stars} size={12} readOnly /></div>
+              <div style={S.commentText}>{mine.text}</div>
+            </div>
+          )}
+          {others.filter((r) => r.text).map((r, i) => (
+            <div key={i} style={S.commentRow}>
+              <div style={S.commentTop}><span style={S.commentName}>{r.name}</span><StarRow value={r.stars} size={12} readOnly /></div>
+              <div style={S.commentText}>{r.text}</div>
+            </div>
+          ))}
+          {mine.stars ? (
+            <div style={S.addComment}>
+              <input style={S.commentInput} placeholder={mine.text ? "Kommentar bearbeiten…" : "Kommentar hinzufügen (optional)…"} value={draft || mine.text || ""} onChange={(e) => setDraft(e.target.value)} />
+              <button style={S.commentSubmit} onClick={submitComment}>Speichern</button>
+            </div>
+          ) : (
+            <div style={S.hintSmall}>Erst Sterne vergeben, um einen Kommentar zu schreiben.</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function DestDetail({ d, ratings, onRate, onArchive, onRemove, onEdit, onBack, name }) {
   const [editing, setEditing] = useState(false);
+  const [distanceState, setDistanceState] = useState({ status: "idle" });
   const cat = CATEGORY.find((c) => c.id === d.category);
+
+  const calcDistance = async () => {
+    if (!d.location) return;
+    setDistanceState({ status: "loading" });
+    try {
+      const pos = await new Promise((resolve, reject) => {
+        if (!navigator.geolocation) return reject(new Error("Geolocation nicht verfügbar"));
+        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 });
+      });
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(d.location)}`);
+      const results = await res.json();
+      if (!results || results.length === 0) { setDistanceState({ status: "error", message: "Adresse nicht gefunden." }); return; }
+      const km = haversineKm(pos.coords.latitude, pos.coords.longitude, parseFloat(results[0].lat), parseFloat(results[0].lon));
+      setDistanceState({ status: "done", km });
+    } catch (e) {
+      setDistanceState({ status: "error", message: e.message || "Standort konnte nicht ermittelt werden." });
+    }
+  };
 
   if (editing) {
     return (
-      <AddForm
-        initial={d}
-        submitLabel="Speichern"
-        onCancel={() => setEditing(false)}
-        onSubmit={(updated) => { onEdit(d.id, updated); setEditing(false); }}
-      />
+      <div style={S.tabContent}>
+        <button style={S.backBtn} onClick={() => setEditing(false)}>← Abbrechen</button>
+        <AddForm
+          initial={d}
+          submitLabel="Speichern"
+          onCancel={() => setEditing(false)}
+          onSubmit={(updated) => { onEdit(d.id, updated); setEditing(false); }}
+        />
+      </div>
     );
   }
 
   return (
-    <div style={S.card}>
-      {d.photoUrl && <img src={d.photoUrl} alt={d.name} style={S.cardImg} />}
-      <div style={S.cardBody}>
-        <div style={S.cardTopRow}>
-          <div style={S.cardTitle}>{d.name}</div>
-          <div style={{ display: "flex", gap: 10 }}>
-            <button style={S.closeBtn} onClick={() => setEditing(true)} title="Bearbeiten">✏️</button>
-            <button style={S.closeBtn} onClick={() => onRemove(d.id)} title="Löschen">✕</button>
+    <div style={S.tabContent}>
+      <button style={S.backBtn} onClick={onBack}>← Zurück zu allen Zielen</button>
+      {d.photoUrl && <img src={d.photoUrl} alt={d.name} style={S.detailImg} />}
+      <div style={S.detailHeaderRow}>
+        <div style={S.detailTitle}>{d.name}</div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button style={S.editBtn} onClick={() => setEditing(true)}>✏️ Bearbeiten</button>
+          <button style={S.closeBtn} onClick={() => { onRemove(d.id); onBack(); }} title="Löschen">✕</button>
+        </div>
+      </div>
+      <div style={S.tagRow}>
+        {cat && <span style={{ ...S.tag, background: cat.color + "22", color: cat.color }}>{cat.emoji} {cat.label}</span>}
+        {d.duration && <span style={S.tag}>⏱ {DURATION.find((x) => x.id === d.duration)?.label}</span>}
+        {d.cost && <span style={S.tag}>💰 {COST.find((x) => x.id === d.cost)?.label}</span>}
+      </div>
+      {d.desc && <p style={S.detailDesc}>{d.desc}</p>}
+      <div style={S.proposedBy}>Vorschlag von {d.proposedBy}</div>
+
+      <ReviewBlock ratings={ratings} onRate={onRate} name={name} />
+
+      {d.location ? (
+        <>
+          <div style={S.sectionLabel}>Ort</div>
+          <div style={S.locationText}>📍 {d.location}</div>
+          <div style={S.mapWrap}>
+            <iframe title="map" width="100%" height="200" style={{ border: 0 }} loading="lazy"
+              src={`https://www.google.com/maps?q=${encodeURIComponent(d.location)}&output=embed`} />
           </div>
-        </div>
-        {d.desc && <div style={S.cardDesc}>{d.desc}</div>}
-        <div style={S.tagRow}>
-          {cat && <span style={{ ...S.tag, background: cat.color + "22", color: cat.color }}>{cat.emoji} {cat.label}</span>}
-          {d.duration && <span style={S.tag}>⏱ {DURATION.find((x) => x.id === d.duration)?.label}</span>}
-          {d.cost && <span style={S.tag}>💰 {COST.find((x) => x.id === d.cost)?.label}</span>}
-        </div>
-        <div style={S.cardFooter}>
-          <span style={S.proposedBy}>Vorschlag von {d.proposedBy}</span>
-          <button style={S.visitedBtn} onClick={() => onArchive(d.id)}>✓ Waren dort</button>
-        </div>
+          <div style={S.sectionLabel}>Entfernung</div>
+          {distanceState.status === "idle" && <button style={S.secondaryBtn} onClick={calcDistance}>📍 Entfernung berechnen</button>}
+          {distanceState.status === "loading" && <div style={S.hintSmall}>Ermittle Standort…</div>}
+          {distanceState.status === "done" && <div style={S.distanceBox}>~{distanceState.km.toFixed(1)} km Luftlinie</div>}
+          {distanceState.status === "error" && <div style={S.hintError}>{distanceState.message}</div>}
+        </>
+      ) : (
+        <div style={S.hintSmall}>Kein Ort hinterlegt – beim Bearbeiten könnt ihr eine Adresse ergänzen, dann erscheinen hier Karte und Entfernung.</div>
+      )}
+
+      <div style={S.cardFooter}>
+        <span />
+        <button style={S.visitedBtn} onClick={() => { onArchive(d.id); onBack(); }}>✓ Waren dort</button>
       </div>
     </div>
   );
@@ -465,18 +665,20 @@ function AddForm({ onSubmit, onCancel, initial, submitLabel }) {
   const [duration, setDuration] = useState(initial?.duration || "halbtag");
   const [cost, setCost] = useState(initial?.cost || "guenstig");
   const [photoUrl, setPhotoUrl] = useState(initial?.photoUrl || "");
+  const [location, setLocation] = useState(initial?.location || "");
   return (
     <div style={S.formCard}>
       <input style={S.input} placeholder="Name des Ziels" value={name} onChange={(e) => setName(e.target.value)} />
       <textarea style={{ ...S.input, minHeight: 56, resize: "vertical" }} placeholder="Kurze Beschreibung (optional)" value={desc} onChange={(e) => setDesc(e.target.value)} />
       <input style={S.input} placeholder="Foto-URL (optional)" value={photoUrl} onChange={(e) => setPhotoUrl(e.target.value)} />
+      <input style={S.input} placeholder="Ort/Adresse (optional, für Karte + Entfernung)" value={location} onChange={(e) => setLocation(e.target.value)} />
       <div style={S.formRow}>{CATEGORY.map((c) => <Chip key={c.id} active={category === c.id} onClick={() => setCategory(c.id)}>{c.label}</Chip>)}</div>
       <div style={S.formRow}>{DURATION.map((d) => <Chip key={d.id} active={duration === d.id} onClick={() => setDuration(d.id)}>{d.label}</Chip>)}</div>
       <div style={S.formRow}>{COST.map((c) => <Chip key={c.id} active={cost === c.id} onClick={() => setCost(c.id)}>{c.label}</Chip>)}</div>
       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
         <button style={S.secondaryBtn} onClick={onCancel}>Abbrechen</button>
         <button style={{ ...S.primaryBtn, flex: 1, opacity: name.trim() ? 1 : 0.45 }} disabled={!name.trim()}
-          onClick={() => onSubmit({ name: name.trim(), desc: desc.trim(), category, duration, cost, photoUrl: photoUrl.trim() })}>
+          onClick={() => onSubmit({ name: name.trim(), desc: desc.trim(), category, duration, cost, photoUrl: photoUrl.trim(), location: location.trim() })}>
           {submitLabel || "Hinzufügen"}
         </button>
       </div>
@@ -548,10 +750,14 @@ function RoundCreateForm({ activeDestinations, existingCount, onSubmit, onCancel
   const [startDate, setStartDate] = useState(todayStr());
   const [endDate, setEndDate] = useState(todayStr());
   const [selectedIds, setSelectedIds] = useState([]);
+  const [candidateDays, setCandidateDays] = useState([]);
 
   const toggle = (id) => {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
+  const addDay = () => setCandidateDays([...candidateDays, startDate]);
+  const updateDay = (i, val) => setCandidateDays(candidateDays.map((d, idx) => (idx === i ? val : d)));
+  const removeDay = (i) => setCandidateDays(candidateDays.filter((_, idx) => idx !== i));
 
   const valid = alias.trim() && startDate && endDate && endDate >= startDate && selectedIds.length >= 2;
 
@@ -579,12 +785,22 @@ function RoundCreateForm({ activeDestinations, existingCount, onSubmit, onCancel
       </div>
       {activeDestinations.length > 0 && selectedIds.length < 2 && <p style={S.hint}>Mindestens 2 Ziele auswählen.</p>}
 
-      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+      <label style={S.label}>Terminvorschläge (optional)</label>
+      <p style={S.hint}>Konkrete Tage, an denen abgestimmt werden soll, wer Zeit hat. Leer lassen für keine Terminumfrage.</p>
+      {candidateDays.map((d, i) => (
+        <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+          <input style={{ ...S.input, marginBottom: 0 }} type="date" value={d} onChange={(e) => updateDay(i, e.target.value)} />
+          <button style={S.secondaryBtn} onClick={() => removeDay(i)}>✕</button>
+        </div>
+      ))}
+      <button style={S.secondaryBtn} onClick={addDay}>+ Tag hinzufügen</button>
+
+      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
         <button style={S.secondaryBtn} onClick={onCancel}>Abbrechen</button>
         <button
           style={{ ...S.primaryBtn, flex: 1, opacity: valid ? 1 : 0.45 }}
           disabled={!valid}
-          onClick={() => onSubmit({ alias: alias.trim(), startDate, endDate, destinationIds: selectedIds })}
+          onClick={() => onSubmit({ alias: alias.trim(), startDate, endDate, destinationIds: selectedIds, candidateDays })}
         >
           Runde erstellen
         </button>
@@ -596,8 +812,11 @@ function RoundCreateForm({ activeDestinations, existingCount, onSubmit, onCancel
 function RoundDetail({ round, destinations, members, roomCode, name, onBack, onDelete }) {
   const status = roundStatus(round);
   const roundDests = destinations.filter((d) => round.destinationIds.includes(d.id));
+  const candidateDays = round.candidateDays || [];
   const [votes, setVotes] = useState({});
   const [myDraft, setMyDraft] = useState({});
+  const [dayVotes, setDayVotes] = useState({});
+  const [myDays, setMyDays] = useState([]);
   const [loadingVotes, setLoadingVotes] = useState(status !== "geplant");
 
   const loadVotes = useCallback(async () => {
@@ -606,6 +825,11 @@ function RoundDetail({ round, destinations, members, roomCode, name, onBack, onD
     const v = await fetchRoundVotes(roomCode, round.id);
     setVotes(v);
     setMyDraft(v[name] || {});
+    if (candidateDays.length > 0) {
+      const dv = await fetchRoundDayVotes(roomCode, round.id);
+      setDayVotes(dv);
+      setMyDays(dv[name] || []);
+    }
     setLoadingVotes(false);
   }, [roomCode, round.id, name, status]);
 
@@ -615,6 +839,16 @@ function RoundDetail({ round, destinations, members, roomCode, name, onBack, onD
     setMyDraft(draft);
     await dbSet(roomCode, `votes:${round.id}:${name}`, draft);
     setVotes((prev) => ({ ...prev, [name]: draft }));
+  };
+
+  const saveMyDays = async (days) => {
+    setMyDays(days);
+    await dbSet(roomCode, `dayvotes:${round.id}:${name}`, days);
+    setDayVotes((prev) => ({ ...prev, [name]: days }));
+  };
+  const toggleDay = (day) => {
+    const next = myDays.includes(day) ? myDays.filter((d) => d !== day) : [...myDays, day];
+    saveMyDays(next);
   };
 
   const ranking = useMemo(() => {
@@ -633,6 +867,16 @@ function RoundDetail({ round, destinations, members, roomCode, name, onBack, onD
       return { ...d, rank };
     });
   }, [roundDests, votes]);
+
+  const dayCounts = useMemo(() => {
+    const arr = candidateDays.map((day) => ({
+      day,
+      count: Object.values(dayVotes).filter((list) => (list || []).includes(day)).length,
+    }));
+    arr.sort((a, b) => b.count - a.count);
+    return arr;
+  }, [candidateDays, dayVotes]);
+  const maxDayCount = Math.max(...dayCounts.map((d) => d.count), 1);
 
   const completedVoters = members.filter((m) => votes[m] && Object.keys(votes[m]).length === roundDests.length);
   const pendingVoters = members.filter((m) => !completedVoters.includes(m));
@@ -654,6 +898,12 @@ function RoundDetail({ round, destinations, members, roomCode, name, onBack, onD
           <div style={S.voteHint}>Diese Runde startet am {formatDate(round.startDate)}. Bis dahin ist noch keine Abstimmung möglich.</div>
           <div style={S.sectionLabel}>Vorschau: {roundDests.length} Ziele</div>
           {roundDests.map((d) => <div key={d.id} style={S.previewRow}>{d.name}</div>)}
+          {candidateDays.length > 0 && (
+            <>
+              <div style={S.sectionLabel}>Terminvorschläge</div>
+              {candidateDays.map((day) => <div key={day} style={S.previewRow}>{formatDate(day)}</div>)}
+            </>
+          )}
           <button style={S.dangerBtn} onClick={onDelete}>Runde löschen</button>
         </>
       )}
@@ -662,8 +912,34 @@ function RoundDetail({ round, destinations, members, roomCode, name, onBack, onD
 
       {status === "aktiv" && !loadingVotes && (
         <>
+          <div style={S.sectionLabel}>Ziele bewerten</div>
           <VotingBlock destinations={roundDests} myVotes={myDraft} onSave={saveMyVotes} />
-          <div style={S.sectionLabel}>Zwischenstand (live)</div>
+
+          {candidateDays.length > 0 && (
+            <>
+              <div style={S.sectionLabel}>An welchem Tag könnt ihr?</div>
+              <div style={S.voteHint}>Wähl alle Tage aus, an denen es bei dir passt – jederzeit änderbar.</div>
+              {candidateDays.map((day) => (
+                <label key={day} style={S.checkRow}>
+                  <input type="checkbox" checked={myDays.includes(day)} onChange={() => toggleDay(day)} />
+                  <span>{formatDate(day)}</span>
+                </label>
+              ))}
+              <div style={S.sectionLabel}>Terminstand</div>
+              {dayCounts.map((dc, i) => (
+                <div key={dc.day} style={S.rankRow}>
+                  <div style={S.rankBadge}>{i + 1}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={S.rankName}>{formatDate(dc.day)}</div>
+                    <div style={S.rankBarTrack}><div style={{ ...S.rankBarFill, width: `${Math.max(6, (dc.count / maxDayCount) * 100)}%` }} /></div>
+                  </div>
+                  <div style={S.rankPoints}>{dc.count}</div>
+                </div>
+              ))}
+            </>
+          )}
+
+          <div style={S.sectionLabel}>Zwischenstand Ziele (live)</div>
           {pendingVoters.length > 0 && <div style={S.pendingBanner}>Noch offen: {pendingVoters.join(", ")}</div>}
           <RankingList ranking={ranking} />
         </>
@@ -673,6 +949,18 @@ function RoundDetail({ round, destinations, members, roomCode, name, onBack, onD
         <>
           <div style={S.sectionLabel}>Ergebnis</div>
           <RankingList ranking={ranking} />
+          {candidateDays.length > 0 && (
+            <>
+              <div style={S.sectionLabel}>Gewählter Termin</div>
+              {dayCounts.map((dc, i) => (
+                <div key={dc.day} style={S.rankRow}>
+                  <div style={S.rankBadge}>{i + 1}</div>
+                  <div style={{ flex: 1 }}><div style={S.rankName}>{formatDate(dc.day)}</div></div>
+                  <div style={S.rankPoints}>{dc.count}</div>
+                </div>
+              ))}
+            </>
+          )}
         </>
       )}
     </div>
@@ -746,8 +1034,13 @@ function HilfeTab() {
       </HelpSection>
 
       <HelpSection title="📍 Ziele">
-        <p style={S.helpText}>Hier sammelt ihr Ausflugsideen, unabhängig davon, ob gerade abgestimmt wird. "+ Neues Ziel vorschlagen" für Name, Beschreibung, Foto, Kategorie, Dauer, Kosten.</p>
-        <p style={S.helpText}><b>"✓ Waren dort":</b> verschiebt ein Ziel ins Archiv, sobald ihr es besucht habt.</p>
+        <p style={S.helpText}>Hier sammelt ihr Ausflugsideen, unabhängig davon, ob gerade abgestimmt wird. "+ Neues Ziel vorschlagen" für Name, Beschreibung, Foto, Ort/Adresse, Kategorie, Dauer, Kosten. Auf ein Ziel tippen öffnet die Detailseite.</p>
+      </HelpSection>
+
+      <HelpSection title="📄 Detailseite">
+        <p style={S.helpText}>Volle Beschreibung, Sterne-Bewertung (1–5, jederzeit änderbar) + Kommentare. <b>Bearbeiten und Löschen gehen nur noch hier</b>, nicht mehr aus der Liste.</p>
+        <p style={S.helpText}>Ist eine Adresse hinterlegt, seht ihr eine Google-Maps-Karte sowie einen Button, um die Luftlinien-Entfernung zu eurem aktuellen Standort zu berechnen (Standortfreigabe nötig).</p>
+        <p style={S.helpText}><b>"✓ Waren dort":</b> verschiebt das Ziel ins Archiv, sobald ihr es besucht habt.</p>
       </HelpSection>
 
       <HelpSection title="🗳️ Runden">
@@ -756,6 +1049,7 @@ function HilfeTab() {
         <div style={S.helpStatusRow}><span style={{ ...S.statusBadge, background: STATUS_COLOR.aktiv + "22", color: STATUS_COLOR.aktiv }}>Aktiv</span><span style={S.helpText}>Abstimmen möglich, Zwischenstand live sichtbar.</span></div>
         <div style={S.helpStatusRow}><span style={{ ...S.statusBadge, background: STATUS_COLOR.beendet + "22", color: STATUS_COLOR.beendet }}>Beendet</span><span style={S.helpText}>Enddatum vorbei – Abstimmen gesperrt, Ergebnis bleibt dauerhaft sichtbar.</span></div>
         <p style={S.helpText}>Beim Abstimmen: Punkte 1 bis N vergeben (N = Anzahl Ziele), jede Zahl nur einmal, wichtigstes Ziel bekommt die höchste Zahl.</p>
+        <p style={S.helpText}><b>Terminumfrage (optional):</b> Beim Erstellen könnt ihr zusätzlich konkrete Tage vorschlagen. Während die Runde aktiv ist, kreuzt jeder an, an welchen Tagen es passt – der Terminstand zeigt, welcher Tag die meiste Zustimmung hat.</p>
       </HelpSection>
 
       <HelpSection title="🗂️ Archiv">
@@ -766,7 +1060,7 @@ function HilfeTab() {
         <p style={S.helpText}>Beliebig viele unabhängige Pools über unterschiedliche Familien-Codes. Der 🔀-Button oben rechts bringt dich zur Pool-Auswahl mit "Zuletzt genutzt"-Liste zum schnellen Wechseln.</p>
       </HelpSection>
 
-      <div style={S.helpSummary}>Ziele sammeln → Runde mit Zeitraum erstellen → abstimmen, solange aktiv → Ergebnis ansehen → besuchte Ziele archivieren.</div>
+      <div style={S.helpSummary}>Ziele sammeln → Detailseite bearbeiten/bewerten → Runde mit Zeitraum (+ optional Terminumfrage) erstellen → abstimmen, solange aktiv → Ergebnis ansehen → besuchte Ziele archivieren.</div>
     </div>
   );
 }
@@ -890,6 +1184,31 @@ const S = {
   helpStatusRow: { display: "flex", alignItems: "center", gap: 8 },
   helpSummary: { fontSize: 12.5, color: "#3F6B4A", fontWeight: 700, background: "#E4EBE1", padding: "12px 14px", borderRadius: 10, lineHeight: 1.5, textAlign: "center" },
   helpLink: { background: "none", border: "none", color: "#3F6B4A", fontWeight: 700, fontSize: 13, cursor: "pointer", padding: "0 0 18px", textAlign: "left", textDecoration: "underline" },
+  reviewBlock: { marginTop: 10, background: "#FFFFFF", borderRadius: 10, padding: "10px 12px", border: "1px solid #E8E5D8" },
+  reviewTopRow: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" },
+  reviewLabel: { fontSize: 10.5, fontWeight: 700, color: "#8A8A7A", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 },
+  avgBox: { display: "flex", alignItems: "center", gap: 3 },
+  avgNum: { fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, fontSize: 14, color: "#223022" },
+  avgCount: { fontSize: 11, color: "#9A9A8A" },
+  toggleBtn: { display: "flex", alignItems: "center", gap: 5, background: "none", border: "none", color: "#3F6B4A", fontWeight: 600, fontSize: 12, cursor: "pointer", padding: "8px 0 0" },
+  commentsWrap: { marginTop: 8, display: "flex", flexDirection: "column", gap: 8 },
+  commentRow: { background: "#F7F4EC", borderRadius: 8, padding: "8px 10px" },
+  commentTop: { display: "flex", justifyContent: "space-between", alignItems: "center" },
+  commentName: { fontSize: 12.5, fontWeight: 700, color: "#223022" },
+  commentText: { fontSize: 12.5, color: "#5B5B4E", marginTop: 3, lineHeight: 1.4 },
+  addComment: { display: "flex", gap: 6, marginTop: 2 },
+  commentInput: { flex: 1, padding: "8px 10px", borderRadius: 8, border: "1.5px solid #D8D5C6", fontSize: 12.5, fontFamily: "'Inter', sans-serif" },
+  commentSubmit: { padding: "8px 12px", borderRadius: 8, border: "none", background: "#3F6B4A", color: "#F7F4EC", fontWeight: 700, fontSize: 12, cursor: "pointer" },
+  hintSmall: { fontSize: 11.5, color: "#9A9A8A", fontStyle: "italic" },
+  detailImg: { width: "100%", height: 170, objectFit: "cover", borderRadius: 14, display: "block" },
+  detailHeaderRow: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 },
+  detailTitle: { fontFamily: "'Big Shoulders Display', sans-serif", fontWeight: 800, fontSize: 21, color: "#223022" },
+  editBtn: { background: "#3F6B4A", border: "none", color: "#F7F4EC", fontWeight: 700, fontSize: 11.5, padding: "6px 11px", borderRadius: 20, cursor: "pointer", whiteSpace: "nowrap" },
+  detailDesc: { fontSize: 13, color: "#5B5B4E", lineHeight: 1.5, margin: 0 },
+  locationText: { fontSize: 13, color: "#223022" },
+  mapWrap: { borderRadius: 12, overflow: "hidden", border: "1px solid #E0DDCE" },
+  distanceBox: { fontSize: 13.5, fontWeight: 700, color: "#3F6B4A", background: "#E4EBE1", padding: "9px 11px", borderRadius: 10 },
+  hintError: { fontSize: 12, color: "#8a2e2e" },
 };
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
