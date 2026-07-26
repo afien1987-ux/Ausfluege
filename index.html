@@ -1253,7 +1253,7 @@ function ImpressumPage() {
       <div style={S.helpIntro}>
         Diese App wird privat und nicht-kommerziell innerhalb einer Familie/eines Freundeskreises genutzt.
         Für rein private, nicht-öffentlich beworbene Angebote besteht in der Regel keine Impressumspflicht –
-        hier trotzdem ein ausfüllbarer Platzhalter, falls gewünscht.
+        die folgenden Angaben stehen trotzdem freiwillig bereit.
       </div>
       <div style={S.helpCard}>
         <div style={S.helpTitle}>Angaben</div>
@@ -1270,7 +1270,7 @@ function ImpressumPage() {
 function DatenschutzPage() {
   return (
     <div style={S.tabContent}>
-      <div style={S.helpIntro}>Datenschutzerklärung (Vorlage – bei Bedarf anpassen)</div>
+      <div style={S.helpIntro}>Datenschutzerklärung</div>
       <div style={S.helpCard}>
         <div style={S.helpTitle}>Welche Daten werden gespeichert?</div>
         <p style={S.helpText}>Von euch eingegebene Namen, Ziele, Bewertungen, Kommentare, Rundendaten und Adressangaben – gespeichert in einer Supabase-Datenbank, zugänglich für alle, die euren Familien-Code kennen.</p>
@@ -1324,12 +1324,13 @@ function HilfeTab() {
       </HelpSection>
 
       <HelpSection title="📍 Ziele">
-        <p style={S.helpText}>Hier sammelt ihr Ausflugsideen, unabhängig davon, ob gerade abgestimmt wird. "+ Neues Ziel vorschlagen" für Name, Beschreibung, Foto, Ort/Adresse, Kategorie, Dauer, Kosten. Auf ein Ziel tippen öffnet die Detailseite.</p>
+        <p style={S.helpText}>Hier sammelt ihr Ausflugsideen, unabhängig davon, ob gerade abgestimmt wird. "+ Neues Ziel vorschlagen" für Name, Beschreibung, Foto, Ort/Adresse (mit Autovorschlägen beim Tippen), Kategorie, Dauer, Kosten. Auf ein Ziel tippen öffnet die Detailseite.</p>
+        <p style={S.helpText}>Ist ein Ort hinterlegt, zeigt die Kachel automatisch die Entfernung zu deinem aktuellen Standort (Standortfreigabe einmalig nötig).</p>
       </HelpSection>
 
       <HelpSection title="📄 Detailseite">
-        <p style={S.helpText}>Volle Beschreibung, Sterne-Bewertung (1–5, jederzeit änderbar) + Kommentare. <b>Bearbeiten und Löschen gehen nur noch hier</b>, nicht mehr aus der Liste.</p>
-        <p style={S.helpText}>Ist eine Adresse hinterlegt, seht ihr eine Google-Maps-Karte sowie einen Button, um die Luftlinien-Entfernung zu eurem aktuellen Standort zu berechnen (Standortfreigabe nötig).</p>
+        <p style={S.helpText}>Volle Beschreibung, Sterne-Bewertung (1–5, jederzeit änderbar) + Kommentare. <b>Bearbeiten und Löschen gehen nur noch hier</b>, nicht mehr aus der Liste (Löschen fragt vorher nach Bestätigung).</p>
+        <p style={S.helpText}>Ist eine Adresse hinterlegt, seht ihr eine Google-Maps-Karte sowie die automatisch berechnete Luftlinien-Entfernung zu deinem aktuellen Standort.</p>
         <p style={S.helpText}><b>"✓ Waren dort":</b> verschiebt das Ziel ins Archiv, sobald ihr es besucht habt.</p>
       </HelpSection>
 
@@ -1348,6 +1349,10 @@ function HilfeTab() {
 
       <HelpSection title="🔀 Mehrere Pools">
         <p style={S.helpText}>Beliebig viele unabhängige Pools über unterschiedliche Familien-Codes. Der 🔀-Button oben rechts bringt dich zur Pool-Auswahl mit "Zuletzt genutzt"-Liste zum schnellen Wechseln.</p>
+      </HelpSection>
+
+      <HelpSection title="☰ Menü">
+        <p style={S.helpText}>Über das ☰-Symbol oben rechts erreichst du diese Hilfe sowie Impressum, Datenschutz und die Erklärung zur Barrierefreiheit.</p>
       </HelpSection>
 
       <div style={S.helpSummary}>Ziele sammeln → Detailseite bearbeiten/bewerten → Runde mit Zeitraum (+ optional Terminumfrage) erstellen → abstimmen, solange aktiv → Ergebnis ansehen → besuchte Ziele archivieren.</div>
