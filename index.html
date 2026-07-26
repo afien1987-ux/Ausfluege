@@ -209,6 +209,35 @@ function isValidUrl(str) {
   return /^https?:\/\/.+/i.test(str.trim());
 }
 
+function useBackClose(active, onBack) {
+  const pushedRef = useRef(false);
+  const onBackRef = useRef(onBack);
+  onBackRef.current = onBack;
+
+  useEffect(() => {
+    if (active && !pushedRef.current) {
+      window.history.pushState({ appNav: true }, "");
+      pushedRef.current = true;
+    } else if (!active && pushedRef.current) {
+      pushedRef.current = false;
+      if (window.history.state && window.history.state.appNav) {
+        window.history.back();
+      }
+    }
+  }, [active]);
+
+  useEffect(() => {
+    function handlePop() {
+      if (pushedRef.current) {
+        pushedRef.current = false;
+        onBackRef.current();
+      }
+    }
+    window.addEventListener("popstate", handlePop);
+    return () => window.removeEventListener("popstate", handlePop);
+  }, []);
+}
+
 function App() {
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [roomCode, setRoomCode] = useState("");
@@ -216,6 +245,7 @@ function App() {
   const [joined, setJoined] = useState(false);
   const [tab, setTab] = useState("ziele");
   const [menuOpen, setMenuOpen] = useState(false);
+  useBackClose(menuOpen, () => setMenuOpen(false));
   const [destinations, setDestinations] = useState([]);
   const [members, setMembers] = useState([]);
   const [rounds, setRounds] = useState([]);
@@ -419,6 +449,7 @@ function App() {
 
 function JoinScreen({ roomCode, setRoomCode, name, setName, onJoin, recentProfiles, onQuickJoin }) {
   const [showHelp, setShowHelp] = useState(false);
+  useBackClose(showHelp, () => setShowHelp(false));
 
   if (showHelp) {
     return (
@@ -533,6 +564,9 @@ function ZieleTab({ destinations, onAdd, onRemove, onArchive, onEdit, ratingsByD
   const [userPos, setUserPos] = useState(null);
   const [geoStatus, setGeoStatus] = useState("idle"); // idle | granted | denied
   const [distances, setDistances] = useState({});
+
+  useBackClose(showForm, () => setShowForm(false));
+  useBackClose(!!openId, () => setOpenId(null));
 
   useEffect(() => {
     if (!navigator.geolocation) { setGeoStatus("denied"); return; }
@@ -709,6 +743,7 @@ function haversineKm(lat1, lon1, lat2, lon2) {
 
 function DestDetail({ d, ratings, onRate, onArchive, onRemove, onEdit, onBack, name, distanceKm, geoStatus }) {
   const [editing, setEditing] = useState(false);
+  useBackClose(editing, () => setEditing(false));
   const cat = CATEGORY.find((c) => c.id === d.category);
 
   if (editing) {
@@ -877,6 +912,7 @@ function Chip({ active, onClick, children }) {
 function RundenTab({ rounds, destinations, activeDestinations, members, roomCode, name, onCreateRound, onDeleteRound }) {
   const [mode, setMode] = useState("list"); // list | create | detail
   const [selectedId, setSelectedId] = useState(null);
+  useBackClose(mode !== "list", () => { setMode("list"); setSelectedId(null); });
 
   if (mode === "create") {
     return (
@@ -1209,6 +1245,7 @@ function RankingList({ ranking }) {
 
 function MenuOverlay({ onClose }) {
   const [page, setPage] = useState("menu");
+  useBackClose(page !== "menu", () => setPage("menu"));
 
   const items = [
     { id: "hilfe", label: "Hilfe", emoji: "❓" },
