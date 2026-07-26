@@ -66,6 +66,10 @@ if (!window.supabase) {
 const sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 const TABLE = "pool_data";
 
+function notifyError(message) {
+  window.dispatchEvent(new CustomEvent("app-toast", { detail: { message } }));
+}
+
 async function dbGet(roomCode, key) {
   const { data, error } = await sb.from(TABLE).select("data_value").eq("room_code", roomCode).eq("data_key", key).maybeSingle();
   if (error) { console.error(error); return null; }
@@ -76,7 +80,12 @@ async function dbSet(roomCode, key, value) {
     { room_code: roomCode, data_key: key, data_value: value, updated_at: new Date().toISOString() },
     { onConflict: "room_code,data_key" }
   );
-  if (error) console.error(error);
+  if (error) {
+    console.error(error);
+    notifyError("Speichern fehlgeschlagen. Bitte Internetverbindung prüfen und erneut versuchen.");
+    return false;
+  }
+  return true;
 }
 async function dbListKeys(roomCode, prefix) {
   const { data, error } = await sb.from(TABLE).select("data_key").eq("room_code", roomCode).like("data_key", `${prefix}%`);
@@ -141,6 +150,64 @@ function roundStatus(round) {
 }
 const STATUS_LABEL = { geplant: "Geplant", aktiv: "Aktiv", beendet: "Beendet" };
 const STATUS_COLOR = { geplant: "#8A8A7A", aktiv: "#3F6B4A", beendet: "#4C7A94" };
+
+function ToastHost() {
+  const [toasts, setToasts] = useState([]);
+  useEffect(() => {
+    const handler = (e) => {
+      const id = Math.random().toString(36).slice(2);
+      setToasts((prev) => [...prev, { id, message: e.detail.message }]);
+      setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
+    };
+    window.addEventListener("app-toast", handler);
+    return () => window.removeEventListener("app-toast", handler);
+  }, []);
+  if (toasts.length === 0) return null;
+  return (
+    <div style={S.toastWrap}>
+      {toasts.map((t) => <div key={t.id} style={S.toast}>{t.message}</div>)}
+    </div>
+  );
+}
+
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error) {
+    console.error(error);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={S.errorScreen}>
+          <div style={{ fontSize: 32, marginBottom: 8 }}>😕</div>
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>Etwas ist schiefgelaufen</div>
+          <p style={S.hintSmall}>Die App hatte einen unerwarteten Fehler. Ein Neuladen hilft meistens.</p>
+          <button style={S.primaryBtn} onClick={() => window.location.reload()}>Seite neu laden</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function ImageWithFallback({ src, alt, style }) {
+  const [failed, setFailed] = useState(false);
+  if (!src || failed) {
+    return <div style={{ ...style, background: "#E4E1D4", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26 }}>🖼️</div>;
+  }
+  return <img src={src} alt={alt} style={style} onError={() => setFailed(true)} />;
+}
+
+function isValidUrl(str) {
+  if (!str) return true;
+  return /^https?:\/\/.+/i.test(str.trim());
+}
 
 function App() {
   const [loadingProfile, setLoadingProfile] = useState(true);
@@ -316,6 +383,7 @@ function App() {
 
   return (
     <div style={S.app}>
+      <ToastHost />
       <Header roomCode={roomCode} name={name} onRefresh={refresh} onSwitchPool={switchPool} busy={busy} />
       <div style={S.content}>
         {tab === "ziele" && (
@@ -523,7 +591,7 @@ function ZieleTab({ destinations, onAdd, onRemove, onArchive, onEdit, ratingsByD
         const km = distances[d.id];
         return (
           <button key={d.id} style={S.card} onClick={() => setOpenId(d.id)}>
-            {d.photoUrl && <img src={d.photoUrl} alt={d.name} style={S.cardImg} />}
+            <ImageWithFallback src={d.photoUrl} alt={d.name} style={S.cardImg} />
             <div style={S.cardBody}>
               <div style={S.cardTitle}>{d.name}</div>
               <div style={S.tagRow}>
@@ -613,7 +681,7 @@ function ReviewBlock({ ratings, onRate, name }) {
           ))}
           {mine.stars ? (
             <div style={S.addComment}>
-              <input style={S.commentInput} placeholder={mine.text ? "Kommentar bearbeiten…" : "Kommentar hinzufügen (optional)…"} value={draft || mine.text || ""} onChange={(e) => setDraft(e.target.value)} />
+              <input style={S.commentInput} maxLength={300} placeholder={mine.text ? "Kommentar bearbeiten…" : "Kommentar hinzufügen (optional)…"} value={draft || mine.text || ""} onChange={(e) => setDraft(e.target.value)} />
               <button style={S.commentSubmit} onClick={submitComment}>Speichern</button>
             </div>
           ) : (
@@ -654,12 +722,12 @@ function DestDetail({ d, ratings, onRate, onArchive, onRemove, onEdit, onBack, n
   return (
     <div style={S.tabContent}>
       <button style={S.backBtn} onClick={onBack}>← Zurück zu allen Zielen</button>
-      {d.photoUrl && <img src={d.photoUrl} alt={d.name} style={S.detailImg} />}
+      <ImageWithFallback src={d.photoUrl} alt={d.name} style={S.detailImg} />
       <div style={S.detailHeaderRow}>
         <div style={S.detailTitle}>{d.name}</div>
         <div style={{ display: "flex", gap: 6 }}>
           <button style={S.editBtn} onClick={() => setEditing(true)}>✏️ Bearbeiten</button>
-          <button style={S.closeBtn} onClick={() => { onRemove(d.id); onBack(); }} title="Löschen">✕</button>
+          <button style={S.closeBtn} onClick={() => { if (window.confirm(`"${d.name}" wirklich löschen?`)) { onRemove(d.id); onBack(); } }} title="Löschen">✕</button>
         </div>
       </div>
       <div style={S.tagRow}>
@@ -760,19 +828,35 @@ function AddForm({ onSubmit, onCancel, initial, submitLabel }) {
   const [cost, setCost] = useState(initial?.cost || "guenstig");
   const [photoUrl, setPhotoUrl] = useState(initial?.photoUrl || "");
   const [location, setLocation] = useState(initial?.location || "");
+
+  const photoValid = isValidUrl(photoUrl);
+  const nameValid = name.trim().length > 0 && name.trim().length <= 80;
+  const canSubmit = nameValid && photoValid;
+
+  const submit = () => {
+    if (!canSubmit) return;
+    onSubmit({
+      name: name.trim().slice(0, 80),
+      desc: desc.trim().slice(0, 400),
+      category, duration, cost,
+      photoUrl: photoUrl.trim(),
+      location: location.trim().slice(0, 150),
+    });
+  };
+
   return (
     <div style={S.formCard}>
-      <input style={S.input} placeholder="Name des Ziels" value={name} onChange={(e) => setName(e.target.value)} />
-      <textarea style={{ ...S.input, minHeight: 56, resize: "vertical" }} placeholder="Kurze Beschreibung (optional)" value={desc} onChange={(e) => setDesc(e.target.value)} />
-      <input style={S.input} placeholder="Foto-URL (optional)" value={photoUrl} onChange={(e) => setPhotoUrl(e.target.value)} />
+      <input style={S.input} placeholder="Name des Ziels" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} />
+      <textarea style={{ ...S.input, minHeight: 56, resize: "vertical" }} placeholder="Kurze Beschreibung (optional)" value={desc} maxLength={400} onChange={(e) => setDesc(e.target.value)} />
+      <input style={S.input} type="url" placeholder="Foto-URL (optional, https://...)" value={photoUrl} onChange={(e) => setPhotoUrl(e.target.value)} />
+      {!photoValid && <p style={{ ...S.hint, color: "#8a2e2e" }}>Foto-URL muss mit http:// oder https:// beginnen.</p>}
       <LocationAutocomplete value={location} onChange={setLocation} />
       <div style={S.formRow}>{CATEGORY.map((c) => <Chip key={c.id} active={category === c.id} onClick={() => setCategory(c.id)}>{c.label}</Chip>)}</div>
       <div style={S.formRow}>{DURATION.map((d) => <Chip key={d.id} active={duration === d.id} onClick={() => setDuration(d.id)}>{d.label}</Chip>)}</div>
       <div style={S.formRow}>{COST.map((c) => <Chip key={c.id} active={cost === c.id} onClick={() => setCost(c.id)}>{c.label}</Chip>)}</div>
       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
         <button style={S.secondaryBtn} onClick={onCancel}>Abbrechen</button>
-        <button style={{ ...S.primaryBtn, flex: 1, opacity: name.trim() ? 1 : 0.45 }} disabled={!name.trim()}
-          onClick={() => onSubmit({ name: name.trim(), desc: desc.trim(), category, duration, cost, photoUrl: photoUrl.trim(), location: location.trim() })}>
+        <button style={{ ...S.primaryBtn, flex: 1, opacity: canSubmit ? 1 : 0.45 }} disabled={!canSubmit} onClick={submit}>
           {submitLabel || "Hinzufügen"}
         </button>
       </div>
@@ -858,7 +942,7 @@ function RoundCreateForm({ activeDestinations, existingCount, onSubmit, onCancel
   return (
     <div style={S.formCard}>
       <label style={S.label}>Alias / Name der Runde</label>
-      <input style={S.input} value={alias} onChange={(e) => setAlias(e.target.value)} placeholder="z. B. Sommerferien 2026" />
+      <input style={S.input} value={alias} maxLength={40} onChange={(e) => setAlias(e.target.value)} placeholder="z. B. Sommerferien 2026" />
 
       <label style={S.label}>Startet am</label>
       <input style={S.input} type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
@@ -998,7 +1082,7 @@ function RoundDetail({ round, destinations, members, roomCode, name, onBack, onD
               {candidateDays.map((day) => <div key={day} style={S.previewRow}>{formatDate(day)}</div>)}
             </>
           )}
-          <button style={S.dangerBtn} onClick={onDelete}>Runde löschen</button>
+          <button style={S.dangerBtn} onClick={() => { if (window.confirm(`Runde "${round.alias}" wirklich löschen?`)) onDelete(); }}>Runde löschen</button>
         </>
       )}
 
@@ -1183,7 +1267,7 @@ function ArchivTab({ destinations, onReactivate }) {
         const cat = CATEGORY.find((c) => c.id === d.category);
         return (
           <div key={d.id} style={{ ...S.card, opacity: 0.85 }}>
-            {d.photoUrl && <img src={d.photoUrl} alt={d.name} style={S.cardImg} />}
+            <ImageWithFallback src={d.photoUrl} alt={d.name} style={S.cardImg} />
             <div style={S.cardBody}>
               <div style={S.cardTitle}>{d.name}</div>
               <div style={S.tagRow}>
@@ -1218,7 +1302,7 @@ const S = {
   primaryBtn: { width: "100%", padding: "13px 16px", borderRadius: 10, border: "none", background: "#3F6B4A", color: "#F7F4EC", fontWeight: 700, fontSize: 15, cursor: "pointer" },
   secondaryBtn: { padding: "13px 16px", borderRadius: 10, border: "1.5px solid #D8D5C6", background: "transparent", color: "#5B5B4E", fontWeight: 600, fontSize: 14, cursor: "pointer" },
   dangerBtn: { padding: "10px 14px", borderRadius: 10, border: "1.5px solid #E0BEBE", background: "transparent", color: "#8a2e2e", fontWeight: 600, fontSize: 13, cursor: "pointer" },
-  app: { fontFamily: "'Inter', sans-serif", background: "#EFEDE3", height: "100vh", maxHeight: "100vh", overflow: "hidden", display: "flex", flexDirection: "column", maxWidth: 480, margin: "0 auto" },
+  app: { fontFamily: "'Inter', sans-serif", background: "#EFEDE3", height: "100vh", maxHeight: "100vh", overflow: "hidden", display: "flex", flexDirection: "column", maxWidth: 480, margin: "0 auto", position: "relative" },
   header: { background: "#223022", padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" },
   headerEyebrow: { fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: "#9CBBA3", letterSpacing: 1 },
   headerName2: { fontFamily: "'Big Shoulders Display', sans-serif", fontWeight: 800, fontSize: 22, color: "#F7F4EC", letterSpacing: 1 },
@@ -1313,10 +1397,22 @@ const S = {
     background: "none", border: "none", borderBottom: "1px solid #EFEDE3",
     fontSize: 12.5, color: "#223022", cursor: "pointer",
   },
+  toastWrap: {
+    position: "absolute", top: 8, left: 8, right: 8, zIndex: 50,
+    display: "flex", flexDirection: "column", gap: 6,
+  },
+  toast: {
+    background: "#8a2e2e", color: "#FBEAEA", fontSize: 12.5, fontWeight: 600,
+    padding: "10px 12px", borderRadius: 10, boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+  },
+  errorScreen: {
+    height: "100vh", display: "flex", flexDirection: "column", alignItems: "center",
+    justifyContent: "center", padding: 24, textAlign: "center", background: "#EFEDE3", gap: 8,
+  },
 };
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(React.createElement(App));
+root.render(React.createElement(ErrorBoundary, null, React.createElement(App)));
 </script>
 
 <script>
