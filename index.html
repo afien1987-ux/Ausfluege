@@ -215,6 +215,7 @@ function App() {
   const [name, setName] = useState("");
   const [joined, setJoined] = useState(false);
   const [tab, setTab] = useState("ziele");
+  const [menuOpen, setMenuOpen] = useState(false);
   const [destinations, setDestinations] = useState([]);
   const [members, setMembers] = useState([]);
   const [rounds, setRounds] = useState([]);
@@ -384,29 +385,34 @@ function App() {
   return (
     <div style={S.app}>
       <ToastHost />
-      <Header roomCode={roomCode} name={name} onRefresh={refresh} onSwitchPool={switchPool} busy={busy} />
-      <div style={S.content}>
-        {tab === "ziele" && (
-          <ZieleTab destinations={activeDestinations} onAdd={addDestination} onRemove={removeDestination} onArchive={archiveDestination} onEdit={editDestination} ratingsByDest={ratingsByDest} onRate={saveRating} name={name} />
-        )}
-        {tab === "runden" && (
-          <RundenTab
-            rounds={rounds}
-            destinations={destinations}
-            activeDestinations={activeDestinations}
-            members={members}
-            roomCode={roomCode}
-            name={name}
-            onCreateRound={createRound}
-            onDeleteRound={deleteRound}
-          />
-        )}
-        {tab === "archiv" && (
-          <ArchivTab destinations={archivedDestinations} onReactivate={reactivateDestination} />
-        )}
-        {tab === "hilfe" && <HilfeTab />}
-      </div>
-      <TabBar tab={tab} setTab={setTab} />
+      <Header roomCode={roomCode} name={name} onRefresh={refresh} onSwitchPool={switchPool} onMenu={() => setMenuOpen(true)} busy={busy} />
+      {menuOpen ? (
+        <MenuOverlay onClose={() => setMenuOpen(false)} />
+      ) : (
+        <>
+          <div style={S.content}>
+            {tab === "ziele" && (
+              <ZieleTab destinations={activeDestinations} onAdd={addDestination} onRemove={removeDestination} onArchive={archiveDestination} onEdit={editDestination} ratingsByDest={ratingsByDest} onRate={saveRating} name={name} />
+            )}
+            {tab === "runden" && (
+              <RundenTab
+                rounds={rounds}
+                destinations={destinations}
+                activeDestinations={activeDestinations}
+                members={members}
+                roomCode={roomCode}
+                name={name}
+                onCreateRound={createRound}
+                onDeleteRound={deleteRound}
+              />
+            )}
+            {tab === "archiv" && (
+              <ArchivTab destinations={archivedDestinations} onReactivate={reactivateDestination} />
+            )}
+          </div>
+          <TabBar tab={tab} setTab={setTab} />
+        </>
+      )}
     </div>
   );
 }
@@ -462,7 +468,7 @@ function JoinScreen({ roomCode, setRoomCode, name, setName, onJoin, recentProfil
   );
 }
 
-function Header({ roomCode, name, onRefresh, onSwitchPool, busy }) {
+function Header({ roomCode, name, onRefresh, onSwitchPool, onMenu, busy }) {
   return (
     <div style={S.header}>
       <div>
@@ -475,6 +481,7 @@ function Header({ roomCode, name, onRefresh, onSwitchPool, busy }) {
         <button style={S.iconBtn} onClick={onRefresh} title="Aktualisieren">
           <span className={busy ? "spin" : ""} style={{ display: "inline-block" }}>↻</span>
         </button>
+        <button style={S.iconBtn} onClick={onMenu} title="Menü"><span>☰</span></button>
       </div>
     </div>
   );
@@ -485,7 +492,6 @@ function TabBar({ tab, setTab }) {
     { id: "ziele", label: "Ziele", emoji: "📍" },
     { id: "runden", label: "Runden", emoji: "🗳️" },
     { id: "archiv", label: "Archiv", emoji: "🗂️" },
-    { id: "hilfe", label: "Hilfe", emoji: "❓" },
   ];
   return (
     <div style={S.tabBar}>
@@ -1201,6 +1207,112 @@ function RankingList({ ranking }) {
   );
 }
 
+function MenuOverlay({ onClose }) {
+  const [page, setPage] = useState("menu");
+
+  const items = [
+    { id: "hilfe", label: "Hilfe", emoji: "❓" },
+    { id: "impressum", label: "Impressum", emoji: "⚖️" },
+    { id: "datenschutz", label: "Datenschutz", emoji: "🔒" },
+    { id: "barrierefreiheit", label: "Barrierefreiheit", emoji: "♿" },
+  ];
+
+  if (page === "menu") {
+    return (
+      <div style={S.content}>
+        <div style={S.tabContent}>
+          <button style={S.backBtn} onClick={onClose}>← Zurück zur App</button>
+          {items.map((it) => (
+            <button key={it.id} style={S.menuItem} onClick={() => setPage(it.id)}>
+              <span style={{ fontSize: 18 }}>{it.emoji}</span>
+              <span style={S.menuItemLabel}>{it.label}</span>
+              <span style={{ marginLeft: "auto", color: "#8A8A7A" }}>→</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={S.content}>
+      <div style={S.tabContent}>
+        <button style={S.backBtn} onClick={() => setPage("menu")}>← Zurück zum Menü</button>
+        {page === "hilfe" && <HilfeTab />}
+        {page === "impressum" && <ImpressumPage />}
+        {page === "datenschutz" && <DatenschutzPage />}
+        {page === "barrierefreiheit" && <BarrierefreiheitPage />}
+      </div>
+    </div>
+  );
+}
+
+function ImpressumPage() {
+  return (
+    <div style={S.tabContent}>
+      <div style={S.helpIntro}>
+        Diese App wird privat und nicht-kommerziell innerhalb einer Familie/eines Freundeskreises genutzt.
+        Für rein private, nicht-öffentlich beworbene Angebote besteht in der Regel keine Impressumspflicht –
+        hier trotzdem ein ausfüllbarer Platzhalter, falls gewünscht.
+      </div>
+      <div style={S.helpCard}>
+        <div style={S.helpTitle}>Angaben</div>
+        <p style={S.helpText}>
+          Adrian Helmut Thorsten Fien<br />
+          Steinstraße 14, 78467 Konstanz<br />
+          A.fien@gmx.de
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function DatenschutzPage() {
+  return (
+    <div style={S.tabContent}>
+      <div style={S.helpIntro}>Datenschutzerklärung (Vorlage – bei Bedarf anpassen)</div>
+      <div style={S.helpCard}>
+        <div style={S.helpTitle}>Welche Daten werden gespeichert?</div>
+        <p style={S.helpText}>Von euch eingegebene Namen, Ziele, Bewertungen, Kommentare, Rundendaten und Adressangaben – gespeichert in einer Supabase-Datenbank, zugänglich für alle, die euren Familien-Code kennen.</p>
+      </div>
+      <div style={S.helpCard}>
+        <div style={S.helpTitle}>Standort</div>
+        <p style={S.helpText}>Mit eurer Erlaubnis nutzt die App den Gerätestandort, um Entfernungen zu berechnen. Adressen werden zur Umrechnung in Koordinaten an den kostenlosen Dienst OpenStreetMap/Nominatim übermittelt.</p>
+      </div>
+      <div style={S.helpCard}>
+        <div style={S.helpTitle}>Karten</div>
+        <p style={S.helpText}>Zur Anzeige eines Ortes wird eine Karte von Google Maps eingebettet. Dabei gilt die Datenschutzerklärung von Google.</p>
+      </div>
+      <div style={S.helpCard}>
+        <div style={S.helpTitle}>Kein Tracking</div>
+        <p style={S.helpText}>Keine Cookies, keine Werbung, keine Analyse-Tools.</p>
+      </div>
+    </div>
+  );
+}
+
+function BarrierefreiheitPage() {
+  return (
+    <div style={S.tabContent}>
+      <div style={S.helpIntro}>Erklärung zur Barrierefreiheit</div>
+      <div style={S.helpCard}>
+        <div style={S.helpTitle}>Aktueller Stand</div>
+        <p style={S.helpText}>Diese App entspricht nicht vollständig der BITV 2.0 / WCAG 2.1 AA. Bekannte Einschränkungen:</p>
+        <p style={S.helpText}>• Sterne-Bewertung ist nicht per Tastatur bedienbar und wird von Screenreadern nicht sinnvoll vorgelesen</p>
+        <p style={S.helpText}>• Kein gezieltes Fokus-Management beim Wechsel zwischen Übersicht und Detailseite</p>
+        <p style={S.helpText}>• Farbkontraste sind nicht vollständig gegen den WCAG-Mindestwert geprüft</p>
+        <p style={S.helpText}>• Kategorien werden teilweise nur durch Emoji ohne zusätzlichen Text vermittelt</p>
+        <p style={S.helpText}>• Eingebettete Google-Maps-Karte ist nicht per Tastatur bedienbar</p>
+        <p style={S.helpText}>• Keine "Direkt zum Inhalt springen"-Funktion, keine ARIA-Landmarken</p>
+      </div>
+      <div style={S.helpCard}>
+        <div style={S.helpTitle}>Feedback</div>
+        <p style={S.helpText}>Hinweise zu Barrieren gerne direkt an die Familie/Ansprechperson weitergeben.</p>
+      </div>
+    </div>
+  );
+}
+
 function HilfeTab() {
   return (
     <div style={S.tabContent}>
@@ -1409,6 +1521,12 @@ const S = {
     height: "100vh", display: "flex", flexDirection: "column", alignItems: "center",
     justifyContent: "center", padding: 24, textAlign: "center", background: "#EFEDE3", gap: 8,
   },
+  menuItem: {
+    display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
+    background: "#F7F4EC", border: "none", borderRadius: 12, padding: "13px 14px",
+    fontSize: 14.5, fontWeight: 600, color: "#223022", cursor: "pointer",
+  },
+  menuItemLabel: { flex: 1 },
 };
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
