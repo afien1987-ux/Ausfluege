@@ -431,9 +431,64 @@ function TabBar({ tab, setTab }) {
   );
 }
 
+const GEOCODE_CACHE_KEY = "geocode_cache_v1";
+function getGeocodeCache() {
+  try { return JSON.parse(localStorage.getItem(GEOCODE_CACHE_KEY) || "{}"); } catch (e) { return {}; }
+}
+function setGeocodeCacheEntry(address, coords) {
+  try {
+    const cache = getGeocodeCache();
+    cache[address] = coords;
+    localStorage.setItem(GEOCODE_CACHE_KEY, JSON.stringify(cache));
+  } catch (e) {}
+}
+async function geocodeAddress(address) {
+  const cache = getGeocodeCache();
+  if (cache[address]) return cache[address];
+  const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`);
+  const data = await res.json();
+  if (!data || data.length === 0) return null;
+  const coords = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+  setGeocodeCacheEntry(address, coords);
+  return coords;
+}
+
 function ZieleTab({ destinations, onAdd, onRemove, onArchive, onEdit, ratingsByDest, onRate, name }) {
   const [showForm, setShowForm] = useState(false);
   const [openId, setOpenId] = useState(null);
+  const [userPos, setUserPos] = useState(null);
+  const [geoStatus, setGeoStatus] = useState("idle"); // idle | granted | denied
+  const [distances, setDistances] = useState({});
+
+  useEffect(() => {
+    if (!navigator.geolocation) { setGeoStatus("denied"); return; }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { setUserPos({ lat: pos.coords.latitude, lon: pos.coords.longitude }); setGeoStatus("granted"); },
+      () => setGeoStatus("denied"),
+      { timeout: 10000 }
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!userPos) return;
+    let cancelled = false;
+    (async () => {
+      for (const d of destinations) {
+        if (!d.location || distances[d.id] !== undefined) continue;
+        const coords = await geocodeAddress(d.location);
+        if (cancelled) return;
+        if (coords) {
+          const km = haversineKm(userPos.lat, userPos.lon, coords.lat, coords.lon);
+          setDistances((prev) => ({ ...prev, [d.id]: km }));
+        } else {
+          setDistances((prev) => ({ ...prev, [d.id]: null }));
+        }
+        await new Promise((r) => setTimeout(r, 1100));
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line
+  }, [userPos, destinations.map((d) => d.id + ":" + (d.location || "")).join("|")]);
 
   const open = destinations.find((d) => d.id === openId);
   if (open) {
@@ -447,6 +502,8 @@ function ZieleTab({ destinations, onAdd, onRemove, onArchive, onEdit, ratingsByD
         onEdit={onEdit}
         onBack={() => setOpenId(null)}
         name={name}
+        distanceKm={distances[open.id]}
+        geoStatus={geoStatus}
       />
     );
   }
@@ -463,6 +520,7 @@ function ZieleTab({ destinations, onAdd, onRemove, onArchive, onEdit, ratingsByD
         const destRatings = ratingsByDest[d.id] || {};
         const entries = Object.values(destRatings);
         const avg = entries.length ? (entries.reduce((s, r) => s + (r.stars || 0), 0) / entries.length).toFixed(1) : null;
+        const km = distances[d.id];
         return (
           <button key={d.id} style={S.card} onClick={() => setOpenId(d.id)}>
             {d.photoUrl && <img src={d.photoUrl} alt={d.name} style={S.cardImg} />}
@@ -470,7 +528,8 @@ function ZieleTab({ destinations, onAdd, onRemove, onArchive, onEdit, ratingsByD
               <div style={S.cardTitle}>{d.name}</div>
               <div style={S.tagRow}>
                 {cat && <span style={{ ...S.tag, background: cat.color + "22", color: cat.color }}>{cat.emoji} {cat.label}</span>}
-                {d.location && <span style={S.tag}>📍 Ort</span>}
+                {d.location && km !== undefined && km !== null && <span style={S.tag}>📍 {km.toFixed(1)} km</span>}
+                {d.location && km === undefined && <span style={S.tag}>📍 …</span>}
                 {avg && <span style={S.tag}>★ {avg}</span>}
               </div>
               <div style={S.proposedBy}>Vorschlag von {d.proposedBy}</div>
@@ -574,28 +633,9 @@ function haversineKm(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function DestDetail({ d, ratings, onRate, onArchive, onRemove, onEdit, onBack, name }) {
+function DestDetail({ d, ratings, onRate, onArchive, onRemove, onEdit, onBack, name, distanceKm, geoStatus }) {
   const [editing, setEditing] = useState(false);
-  const [distanceState, setDistanceState] = useState({ status: "idle" });
   const cat = CATEGORY.find((c) => c.id === d.category);
-
-  const calcDistance = async () => {
-    if (!d.location) return;
-    setDistanceState({ status: "loading" });
-    try {
-      const pos = await new Promise((resolve, reject) => {
-        if (!navigator.geolocation) return reject(new Error("Geolocation nicht verfügbar"));
-        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 });
-      });
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(d.location)}`);
-      const results = await res.json();
-      if (!results || results.length === 0) { setDistanceState({ status: "error", message: "Adresse nicht gefunden." }); return; }
-      const km = haversineKm(pos.coords.latitude, pos.coords.longitude, parseFloat(results[0].lat), parseFloat(results[0].lon));
-      setDistanceState({ status: "done", km });
-    } catch (e) {
-      setDistanceState({ status: "error", message: e.message || "Standort konnte nicht ermittelt werden." });
-    }
-  };
 
   if (editing) {
     return (
@@ -641,10 +681,13 @@ function DestDetail({ d, ratings, onRate, onArchive, onRemove, onEdit, onBack, n
               src={`https://www.google.com/maps?q=${encodeURIComponent(d.location)}&output=embed`} />
           </div>
           <div style={S.sectionLabel}>Entfernung</div>
-          {distanceState.status === "idle" && <button style={S.secondaryBtn} onClick={calcDistance}>📍 Entfernung berechnen</button>}
-          {distanceState.status === "loading" && <div style={S.hintSmall}>Ermittle Standort…</div>}
-          {distanceState.status === "done" && <div style={S.distanceBox}>~{distanceState.km.toFixed(1)} km Luftlinie</div>}
-          {distanceState.status === "error" && <div style={S.hintError}>{distanceState.message}</div>}
+          {geoStatus === "denied" && (
+            <div style={S.hintError}>Standortzugriff nicht erlaubt – Entfernung kann nicht berechnet werden. Erlaube den Zugriff in den Browser-Einstellungen der Seite.</div>
+          )}
+          {geoStatus === "granted" && distanceKm === undefined && <div style={S.hintSmall}>Berechne Entfernung…</div>}
+          {geoStatus === "granted" && distanceKm === null && <div style={S.hintError}>Adresse konnte nicht gefunden werden.</div>}
+          {geoStatus === "granted" && typeof distanceKm === "number" && <div style={S.distanceBox}>~{distanceKm.toFixed(1)} km Luftlinie</div>}
+          {geoStatus === "idle" && <div style={S.hintSmall}>Ermittle Standort…</div>}
         </>
       ) : (
         <div style={S.hintSmall}>Kein Ort hinterlegt – beim Bearbeiten könnt ihr eine Adresse ergänzen, dann erscheinen hier Karte und Entfernung.</div>
