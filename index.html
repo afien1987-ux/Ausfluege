@@ -53,7 +53,7 @@
 </script>
 
 <script type="text/plain" id="app-source">
-const { useState, useEffect, useCallback, useMemo } = React;
+const { useState, useEffect, useCallback, useMemo, useRef } = React;
 
 if (!window.supabase) {
   document.getElementById("root").innerHTML =
@@ -658,6 +658,57 @@ function DestDetail({ d, ratings, onRate, onArchive, onRemove, onEdit, onBack, n
   );
 }
 
+function LocationAutocomplete({ value, onChange }) {
+  const [suggestions, setSuggestions] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [showList, setShowList] = useState(false);
+  const timeoutRef = useRef(null);
+
+  useEffect(() => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    if (!value || value.trim().length < 3) { setSuggestions([]); return; }
+    timeoutRef.current = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(value)}&limit=5`);
+        const data = await res.json();
+        setSuggestions(data || []);
+      } catch (e) {
+        setSuggestions([]);
+      }
+      setLoading(false);
+    }, 500);
+    return () => clearTimeout(timeoutRef.current);
+  }, [value]);
+
+  return (
+    <div style={{ position: "relative" }}>
+      <input
+        style={S.input}
+        placeholder="Ort/Adresse (optional, für Karte + Entfernung)"
+        value={value}
+        onChange={(e) => { onChange(e.target.value); setShowList(true); }}
+        onFocus={() => setShowList(true)}
+        onBlur={() => setTimeout(() => setShowList(false), 150)}
+      />
+      {loading && <div style={S.hintSmall}>Suche Adressen…</div>}
+      {showList && suggestions.length > 0 && (
+        <div style={S.suggestBox}>
+          {suggestions.map((s, i) => (
+            <button
+              key={i}
+              style={S.suggestItem}
+              onMouseDown={() => { onChange(s.display_name); setSuggestions([]); setShowList(false); }}
+            >
+              {s.display_name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AddForm({ onSubmit, onCancel, initial, submitLabel }) {
   const [name, setName] = useState(initial?.name || "");
   const [desc, setDesc] = useState(initial?.desc || "");
@@ -671,7 +722,7 @@ function AddForm({ onSubmit, onCancel, initial, submitLabel }) {
       <input style={S.input} placeholder="Name des Ziels" value={name} onChange={(e) => setName(e.target.value)} />
       <textarea style={{ ...S.input, minHeight: 56, resize: "vertical" }} placeholder="Kurze Beschreibung (optional)" value={desc} onChange={(e) => setDesc(e.target.value)} />
       <input style={S.input} placeholder="Foto-URL (optional)" value={photoUrl} onChange={(e) => setPhotoUrl(e.target.value)} />
-      <input style={S.input} placeholder="Ort/Adresse (optional, für Karte + Entfernung)" value={location} onChange={(e) => setLocation(e.target.value)} />
+      <LocationAutocomplete value={location} onChange={setLocation} />
       <div style={S.formRow}>{CATEGORY.map((c) => <Chip key={c.id} active={category === c.id} onClick={() => setCategory(c.id)}>{c.label}</Chip>)}</div>
       <div style={S.formRow}>{DURATION.map((d) => <Chip key={d.id} active={duration === d.id} onClick={() => setDuration(d.id)}>{d.label}</Chip>)}</div>
       <div style={S.formRow}>{COST.map((c) => <Chip key={c.id} active={cost === c.id} onClick={() => setCost(c.id)}>{c.label}</Chip>)}</div>
@@ -1124,7 +1175,7 @@ const S = {
   primaryBtn: { width: "100%", padding: "13px 16px", borderRadius: 10, border: "none", background: "#3F6B4A", color: "#F7F4EC", fontWeight: 700, fontSize: 15, cursor: "pointer" },
   secondaryBtn: { padding: "13px 16px", borderRadius: 10, border: "1.5px solid #D8D5C6", background: "transparent", color: "#5B5B4E", fontWeight: 600, fontSize: 14, cursor: "pointer" },
   dangerBtn: { padding: "10px 14px", borderRadius: 10, border: "1.5px solid #E0BEBE", background: "transparent", color: "#8a2e2e", fontWeight: 600, fontSize: 13, cursor: "pointer" },
-  app: { fontFamily: "'Inter', sans-serif", background: "#EFEDE3", minHeight: "100vh", display: "flex", flexDirection: "column", maxWidth: 480, margin: "0 auto" },
+  app: { fontFamily: "'Inter', sans-serif", background: "#EFEDE3", height: "100vh", maxHeight: "100vh", overflow: "hidden", display: "flex", flexDirection: "column", maxWidth: 480, margin: "0 auto" },
   header: { background: "#223022", padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" },
   headerEyebrow: { fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: "#9CBBA3", letterSpacing: 1 },
   headerName2: { fontFamily: "'Big Shoulders Display', sans-serif", fontWeight: 800, fontSize: 22, color: "#F7F4EC", letterSpacing: 1 },
@@ -1209,6 +1260,16 @@ const S = {
   mapWrap: { borderRadius: 12, overflow: "hidden", border: "1px solid #E0DDCE" },
   distanceBox: { fontSize: 13.5, fontWeight: 700, color: "#3F6B4A", background: "#E4EBE1", padding: "9px 11px", borderRadius: 10 },
   hintError: { fontSize: 12, color: "#8a2e2e" },
+  suggestBox: {
+    position: "absolute", top: "100%", left: 0, right: 0, zIndex: 20,
+    background: "#FFFFFF", border: "1.5px solid #D8D5C6", borderRadius: 10,
+    marginTop: -4, maxHeight: 180, overflowY: "auto", boxShadow: "0 6px 16px rgba(0,0,0,0.12)",
+  },
+  suggestItem: {
+    display: "block", width: "100%", textAlign: "left", padding: "9px 12px",
+    background: "none", border: "none", borderBottom: "1px solid #EFEDE3",
+    fontSize: 12.5, color: "#223022", cursor: "pointer",
+  },
 };
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
