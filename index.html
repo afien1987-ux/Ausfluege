@@ -112,6 +112,16 @@ async function fetchRoundDayVotes(roomCode, roundId) {
   }
   return obj;
 }
+async function fetchTerminDayVotes(roomCode, terminId) {
+  const prefix = `termintage:${terminId}:`;
+  const keys = await dbListKeys(roomCode, prefix);
+  const obj = {};
+  for (const k of keys) {
+    const v = await dbGet(roomCode, k);
+    if (v) obj[k.slice(prefix.length)] = v;
+  }
+  return obj;
+}
 
 const CATEGORY = [
   { id: "draussen", label: "Draußen", emoji: "🌲", color: "#3F6B4A" },
@@ -291,6 +301,7 @@ function App() {
   const [destinations, setDestinations] = useState([]);
   const [members, setMembers] = useState([]);
   const [rounds, setRounds] = useState([]);
+  const [termine, setTermine] = useState([]);
   const [ratingsByDest, setRatingsByDest] = useState({});
   const [busy, setBusy] = useState(false);
   const [recentProfiles, setRecentProfiles] = useState([]);
@@ -328,6 +339,7 @@ function App() {
   const membersKey = "members";
   const roundsKey = "rounds";
   const ratingsPrefix = "ratings:";
+  const termineKey = "termine";
 
   const ensureMembership = useCallback(async (roomCode, name) => {
     const raw = await dbGet(roomCode, membersKey);
@@ -356,6 +368,8 @@ function App() {
       if (v) ratingsObj[k.slice(ratingsPrefix.length)] = v;
     }
     setRatingsByDest(ratingsObj);
+    const termineRaw = await dbGet(roomCode, termineKey);
+    setTermine(termineRaw || []);
     setBusy(false);
   }, [roomCode]);
 
@@ -451,6 +465,19 @@ function App() {
     await saveRounds(next);
   };
 
+  const saveTermine = async (next) => {
+    setTermine(next);
+    await dbSet(roomCode, termineKey, next);
+  };
+  const createTermin = async (data) => {
+    const next = [...termine, { ...data, id: uid(), createdBy: name, createdAt: new Date().toISOString() }];
+    await saveTermine(next);
+  };
+  const deleteTermin = async (id) => {
+    const next = termine.filter((t) => t.id !== id);
+    await saveTermine(next);
+  };
+
   if (loadingProfile) return <div style={S.loadingScreen}>Lädt …</div>;
   if (!joined) return <JoinScreen roomCode={roomCode} setRoomCode={setRoomCode} name={name} setName={setName} onJoin={handleJoin} recentProfiles={recentProfiles} onQuickJoin={quickJoin} />;
 
@@ -476,6 +503,17 @@ function App() {
                 name={name}
                 onCreateRound={createRound}
                 onDeleteRound={deleteRound}
+              />
+            )}
+            {tab === "termine" && (
+              <TermineTab
+                termine={termine}
+                activeDestinations={activeDestinations}
+                members={members}
+                roomCode={roomCode}
+                name={name}
+                onCreateTermin={createTermin}
+                onDeleteTermin={deleteTermin}
               />
             )}
             {tab === "archiv" && (
@@ -564,6 +602,7 @@ function TabBar({ tab, setTab }) {
   const items = [
     { id: "ziele", label: "Ziele", emoji: "📍" },
     { id: "runden", label: "Runden", emoji: "🗳️" },
+    { id: "termine", label: "Termine", emoji: "📅" },
     { id: "archiv", label: "Archiv", emoji: "🗂️" },
   ];
   return (
@@ -1436,6 +1475,11 @@ function HilfeTab() {
         <p style={S.helpText}><b>Terminumfrage (optional):</b> Beim Erstellen könnt ihr zusätzlich konkrete Tage vorschlagen. Während die Runde aktiv ist, kreuzt jeder an, an welchen Tagen es passt – der Terminstand zeigt, welcher Tag die meiste Zustimmung hat.</p>
       </HelpSection>
 
+      <HelpSection title="📅 Termine">
+        <p style={S.helpText}>Steht das Ziel schon fest und ihr wollt nur noch den Tag klären? "+ Neue Terminfindung": ein bestehendes Ziel auswählen, "Offen bis"-Datum setzen, mindestens 2 Terminvorschläge hinzufügen.</p>
+        <p style={S.helpText}>Jeder kreuzt an, an welchen Tagen es passt – der Terminstand zeigt live, welcher Tag die meiste Zustimmung hat. Nach dem "Offen bis"-Datum ist die Terminfindung beendet, das Ergebnis bleibt sichtbar.</p>
+      </HelpSection>
+
       <HelpSection title="🗂️ Archiv">
         <p style={S.helpText}>Besuchte Ziele landen hier, mit der Punktzahl aus der letzten beendeten Runde (falls vorhanden). "↺ Wieder einbringen" holt ein Ziel zurück in den aktiven Pool.</p>
       </HelpSection>
@@ -1458,6 +1502,222 @@ function HelpSection({ title, children }) {
     <div style={S.helpCard}>
       <div style={S.helpTitle}>{title}</div>
       {children}
+    </div>
+  );
+}
+
+function TermineTab({ termine, activeDestinations, members, roomCode, name, onCreateTermin, onDeleteTermin }) {
+  const [mode, setMode] = useState("list"); // list | create | detail
+  const [selectedId, setSelectedId] = useState(null);
+  useBackClose(mode !== "list", () => { setMode("list"); setSelectedId(null); });
+
+  if (mode === "create") {
+    return (
+      <TerminCreateForm
+        activeDestinations={activeDestinations}
+        onCancel={() => setMode("list")}
+        onSubmit={(data) => { onCreateTermin(data); setMode("list"); }}
+      />
+    );
+  }
+
+  if (mode === "detail" && selectedId) {
+    const termin = termine.find((t) => t.id === selectedId);
+    if (!termin) { setMode("list"); return null; }
+    const dest = activeDestinations.find((d) => d.id === termin.destinationId) || { name: "(gelöschtes Ziel)" };
+    return (
+      <TerminDetail
+        termin={termin}
+        destination={dest}
+        members={members}
+        roomCode={roomCode}
+        name={name}
+        onBack={() => { setMode("list"); setSelectedId(null); }}
+        onDelete={() => { onDeleteTermin(termin.id); setMode("list"); }}
+      />
+    );
+  }
+
+  const sorted = [...termine].sort((a, b) => (a.endDate < b.endDate ? 1 : -1));
+
+  return (
+    <div style={S.tabContent}>
+      <button style={S.addBtn} onClick={() => setMode("create")}>+ Neue Terminfindung</button>
+      {sorted.length === 0 && (
+        <div style={S.emptyState}><span style={{ fontSize: 26 }}>📅</span><p>Noch keine Terminfindung angelegt. Legt ein Ziel fest und findet gemeinsam den passenden Tag.</p></div>
+      )}
+      {sorted.map((t) => {
+        const dest = activeDestinations.find((d) => d.id === t.destinationId);
+        const status = todayStr() > t.endDate ? "beendet" : "aktiv";
+        return (
+          <button key={t.id} style={S.roundCard} onClick={() => { setSelectedId(t.id); setMode("detail"); }}>
+            <div style={S.roundCardTop}>
+              <span style={S.roundAlias}>{dest ? dest.name : "(gelöschtes Ziel)"}</span>
+              <span style={{ ...S.statusBadge, background: STATUS_COLOR[status] + "22", color: STATUS_COLOR[status] }}>{STATUS_LABEL[status]}</span>
+            </div>
+            <div style={S.roundDates}>Offen bis {formatDate(t.endDate)} · {t.candidateDays.length} Terminvorschläge</div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function TerminCreateForm({ activeDestinations, onCancel, onSubmit }) {
+  const [destinationId, setDestinationId] = useState(activeDestinations[0]?.id || "");
+  const [endDate, setEndDate] = useState(todayStr());
+  const [candidateDays, setCandidateDays] = useState([]);
+
+  const addDay = () => setCandidateDays([...candidateDays, endDate]);
+  const updateDay = (i, val) => setCandidateDays(candidateDays.map((d, idx) => (idx === i ? val : d)));
+  const removeDay = (i) => setCandidateDays(candidateDays.filter((_, idx) => idx !== i));
+
+  const valid = destinationId && endDate && candidateDays.length >= 2;
+
+  if (activeDestinations.length === 0) {
+    return (
+      <div style={S.tabContent}>
+        <div style={S.emptyState}><p>Erst im Tab "Ziele" ein Ziel anlegen, bevor ihr eine Terminfindung startet.</p></div>
+        <button style={S.secondaryBtn} onClick={onCancel}>Zurück</button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={S.formCard}>
+      <label style={S.label}>Ziel</label>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+        {activeDestinations.map((d) => (
+          <label key={d.id} style={S.checkRow}>
+            <input type="radio" name="terminDest" checked={destinationId === d.id} onChange={() => setDestinationId(d.id)} />
+            <span>{d.name}</span>
+          </label>
+        ))}
+      </div>
+
+      <label style={S.label}>Offen bis</label>
+      <input style={S.input} type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+
+      <label style={S.label}>Terminvorschläge ({candidateDays.length})</label>
+      <p style={S.hint}>Mindestens 2 Tage, an denen abgestimmt werden soll, wer Zeit hat.</p>
+      {candidateDays.map((d, i) => (
+        <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+          <input style={{ ...S.input, marginBottom: 0 }} type="date" value={d} onChange={(e) => updateDay(i, e.target.value)} />
+          <button style={S.secondaryBtn} onClick={() => removeDay(i)}>✕</button>
+        </div>
+      ))}
+      <button style={S.secondaryBtn} onClick={addDay}>+ Tag hinzufügen</button>
+
+      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+        <button style={S.secondaryBtn} onClick={onCancel}>Abbrechen</button>
+        <button
+          style={{ ...S.primaryBtn, flex: 1, opacity: valid ? 1 : 0.45 }}
+          disabled={!valid}
+          onClick={() => onSubmit({ destinationId, endDate, candidateDays })}
+        >
+          Terminfindung starten
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function TerminDetail({ termin, destination, members, roomCode, name, onBack, onDelete }) {
+  const status = todayStr() > termin.endDate ? "beendet" : "aktiv";
+  const [dayVotes, setDayVotes] = useState({});
+  const [myDays, setMyDays] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const cat = CATEGORY.find((c) => c.id === destination.category);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const dv = await fetchTerminDayVotes(roomCode, termin.id);
+    setDayVotes(dv);
+    setMyDays(dv[name] || []);
+    setLoading(false);
+  }, [roomCode, termin.id, name]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const saveMyDays = async (days) => {
+    setMyDays(days);
+    await dbSet(roomCode, `termintage:${termin.id}:${name}`, days);
+    setDayVotes((prev) => ({ ...prev, [name]: days }));
+  };
+  const toggleDay = (day) => {
+    const next = myDays.includes(day) ? myDays.filter((d) => d !== day) : [...myDays, day];
+    saveMyDays(next);
+  };
+
+  const dayCounts = useMemo(() => {
+    const arr = termin.candidateDays.map((day) => ({
+      day,
+      count: Object.values(dayVotes).filter((list) => (list || []).includes(day)).length,
+    }));
+    arr.sort((a, b) => b.count - a.count);
+    let rank = 0, last = null;
+    return arr.map((d, i) => { if (d.count !== last) { rank = i + 1; last = d.count; } return { ...d, rank }; });
+  }, [termin.candidateDays, dayVotes]);
+  const maxCount = Math.max(...dayCounts.map((d) => d.count), 1);
+
+  const votedMembers = members.filter((m) => dayVotes[m] && dayVotes[m].length > 0);
+  const pendingMembers = members.filter((m) => !votedMembers.includes(m));
+
+  return (
+    <div style={S.tabContent}>
+      <button style={S.backBtn} onClick={onBack}>← Zurück zu allen Terminen</button>
+
+      <div style={S.roundHeaderCard}>
+        <div style={S.roundCardTop}>
+          <span style={S.roundAliasBig}>{destination.name}</span>
+          <span style={{ ...S.statusBadge, background: STATUS_COLOR[status] + "22", color: STATUS_COLOR[status] }}>{STATUS_LABEL[status]}</span>
+        </div>
+        <div style={S.tagRow}>
+          {cat && <span style={{ ...S.tag, background: cat.color + "22", color: cat.color }}>{cat.emoji} {cat.label}</span>}
+        </div>
+        <div style={S.roundDates}>Offen bis {formatDate(termin.endDate)}</div>
+      </div>
+
+      {loading && <div style={S.voteHint}>Lädt Stimmen …</div>}
+
+      {!loading && status === "aktiv" && (
+        <>
+          <div style={S.sectionLabel}>An welchem Tag kannst du?</div>
+          <div style={S.voteHint}>Wähl alle Tage aus, an denen es bei dir passt – jederzeit änderbar.</div>
+          {termin.candidateDays.map((day) => (
+            <label key={day} style={S.checkRow}>
+              <input type="checkbox" checked={myDays.includes(day)} onChange={() => toggleDay(day)} />
+              <span>{formatDate(day)}</span>
+            </label>
+          ))}
+          {pendingMembers.length > 0 && <div style={S.pendingBanner}>Noch offen: {pendingMembers.join(", ")}</div>}
+          <div style={S.sectionLabel}>Terminstand</div>
+          {dayCounts.map((dc) => (
+            <div key={dc.day} style={S.rankRow}>
+              <div style={S.rankBadge}>{dc.rank}</div>
+              <div style={{ flex: 1 }}>
+                <div style={S.rankName}>{formatDate(dc.day)}</div>
+                <div style={S.rankBarTrack}><div style={{ ...S.rankBarFill, width: `${Math.max(6, (dc.count / maxCount) * 100)}%` }} /></div>
+              </div>
+              <div style={S.rankPoints}>{dc.count}</div>
+            </div>
+          ))}
+          <button style={S.dangerBtn} onClick={onDelete}>Terminfindung löschen</button>
+        </>
+      )}
+
+      {!loading && status === "beendet" && (
+        <>
+          <div style={S.sectionLabel}>Ergebnis</div>
+          {dayCounts.map((dc) => (
+            <div key={dc.day} style={S.rankRow}>
+              <div style={S.rankBadge}>{dc.rank}</div>
+              <div style={{ flex: 1 }}><div style={S.rankName}>{formatDate(dc.day)}</div></div>
+              <div style={S.rankPoints}>{dc.count}</div>
+            </div>
+          ))}
+        </>
+      )}
     </div>
   );
 }
