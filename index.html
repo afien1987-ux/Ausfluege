@@ -209,33 +209,75 @@ function isValidUrl(str) {
   return /^https?:\/\/.+/i.test(str.trim());
 }
 
+// --- Einheitliche Zurück-Navigation (Android/Browser-Zurück-Taste) ---
+// Ein gemeinsamer Stapel sorgt dafür, dass ein Zurück-Druck IMMER genau eine
+// Ebene schließt (nie mehrere gleichzeitig), egal ob Tab-Wechsel, Detailseite,
+// Bearbeiten-Modus oder Menü. Ist der Stapel leer, fragt die App nach, bevor
+// sie wirklich geschlossen wird.
+const navStack = [];
+let bypassExitConfirm = false;
+
+function pushNav(onBack) {
+  const id = Math.random().toString(36).slice(2);
+  navStack.push({ id, onBack });
+  window.history.pushState({ navId: id }, "");
+  return id;
+}
+function popNavProgrammatic(id) {
+  const topIdx = navStack.length - 1;
+  if (topIdx >= 0 && navStack[topIdx].id === id) {
+    navStack.pop();
+    window.history.back();
+  } else {
+    const idx = navStack.findIndex((e) => e.id === id);
+    if (idx !== -1) navStack.splice(idx, 1);
+  }
+}
+
+window.history.pushState({ guard: true }, "");
+window.addEventListener("popstate", () => {
+  if (navStack.length > 0) {
+    const top = navStack.pop();
+    top.onBack();
+    return;
+  }
+  if (bypassExitConfirm) {
+    bypassExitConfirm = false;
+    return;
+  }
+  window.history.pushState({ guard: true }, "");
+  const reallyClose = window.confirm("Möchtest du die App wirklich schließen?");
+  if (reallyClose) {
+    bypassExitConfirm = true;
+    window.history.back();
+  }
+});
+
 function useBackClose(active, onBack) {
-  const pushedRef = useRef(false);
+  const idRef = useRef(null);
   const onBackRef = useRef(onBack);
   onBackRef.current = onBack;
 
   useEffect(() => {
-    if (active && !pushedRef.current) {
-      window.history.pushState({ appNav: true }, "");
-      pushedRef.current = true;
-    } else if (!active && pushedRef.current) {
-      pushedRef.current = false;
-      if (window.history.state && window.history.state.appNav) {
-        window.history.back();
-      }
+    if (active && idRef.current === null) {
+      idRef.current = pushNav(() => onBackRef.current());
+    } else if (!active && idRef.current !== null) {
+      popNavProgrammatic(idRef.current);
+      idRef.current = null;
     }
   }, [active]);
+}
 
-  useEffect(() => {
-    function handlePop() {
-      if (pushedRef.current) {
-        pushedRef.current = false;
-        onBackRef.current();
-      }
-    }
-    window.addEventListener("popstate", handlePop);
-    return () => window.removeEventListener("popstate", handlePop);
+function useTabNav(initialTab) {
+  const [tab, setTabState] = useState(initialTab);
+  const goTo = useCallback((newTab) => {
+    setTabState((current) => {
+      if (current === newTab) return current;
+      pushNav(() => setTabState(current));
+      return newTab;
+    });
   }, []);
+  return [tab, goTo];
 }
 
 function App() {
@@ -243,7 +285,7 @@ function App() {
   const [roomCode, setRoomCode] = useState("");
   const [name, setName] = useState("");
   const [joined, setJoined] = useState(false);
-  const [tab, setTab] = useState("ziele");
+  const [tab, setTab] = useTabNav("ziele");
   const [menuOpen, setMenuOpen] = useState(false);
   useBackClose(menuOpen, () => setMenuOpen(false));
   const [destinations, setDestinations] = useState([]);
