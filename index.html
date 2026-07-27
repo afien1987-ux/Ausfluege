@@ -758,17 +758,24 @@ function StarRow({ value, onRate, size = 20, readOnly }) {
 }
 
 function ReviewBlock({ ratings, onRate, name }) {
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState("");
+  const [open, setOpen] = useState(true);
   const mine = ratings[name] || {};
+  const [draftStars, setDraftStars] = useState(mine.stars || 0);
+  const [draftText, setDraftText] = useState(mine.text || "");
+  const [justSaved, setJustSaved] = useState(false);
+
   const entries = Object.entries(ratings).map(([n, v]) => ({ name: n, ...v }));
   const others = entries.filter((r) => r.name !== name);
   const avg = entries.length ? (entries.reduce((s, r) => s + (r.stars || 0), 0) / entries.length).toFixed(1) : null;
 
-  const submitComment = () => {
-    if (!draft.trim() || !mine.stars) return;
-    onRate({ stars: mine.stars, text: draft.trim() });
-    setDraft("");
+  const dirty = draftStars !== (mine.stars || 0) || draftText !== (mine.text || "");
+  const canSave = draftStars > 0 && dirty;
+
+  const save = () => {
+    if (draftStars === 0) return;
+    onRate({ stars: draftStars, text: draftText.trim() || null });
+    setJustSaved(true);
+    setTimeout(() => setJustSaved(false), 2000);
   };
 
   return (
@@ -776,7 +783,7 @@ function ReviewBlock({ ratings, onRate, name }) {
       <div style={S.reviewTopRow}>
         <div>
           <div style={S.reviewLabel}>Deine Bewertung</div>
-          <StarRow value={mine.stars} onRate={(n) => onRate({ stars: n, text: mine.text })} />
+          <StarRow value={draftStars} onRate={setDraftStars} />
         </div>
         {avg && (
           <div style={S.avgBox}>
@@ -787,33 +794,38 @@ function ReviewBlock({ ratings, onRate, name }) {
         )}
       </div>
 
+      <input
+        style={{ ...S.commentInput, width: "100%", marginTop: 10, boxSizing: "border-box" }}
+        maxLength={300}
+        placeholder={draftStars > 0 ? "Kommentar (optional)…" : "Erst Sterne vergeben, dann Kommentar möglich"}
+        value={draftText}
+        disabled={draftStars === 0}
+        onChange={(e) => setDraftText(e.target.value)}
+      />
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
+        <button style={{ ...S.commentSubmit, opacity: canSave ? 1 : 0.45 }} disabled={!canSave} onClick={save}>
+          Bewertung speichern
+        </button>
+        {justSaved && <span style={{ fontSize: 12, color: "#3F6B4A", fontWeight: 700 }}>✓ Gespeichert</span>}
+      </div>
+
       <button style={S.toggleBtn} onClick={() => setOpen(!open)}>
-        💬 {others.length + (mine.text ? 1 : 0)} Kommentar{others.length + (mine.text ? 1 : 0) === 1 ? "" : "e"} {open ? "▲" : "▼"}
+        💬 {others.filter((r) => r.text).length + (mine.text ? 1 : 0)} Kommentar{others.filter((r) => r.text).length + (mine.text ? 1 : 0) === 1 ? "" : "e"} von anderen {open ? "▲" : "▼"}
       </button>
 
-      {open && (
+      {open && others.filter((r) => r.text).length > 0 && (
         <div style={S.commentsWrap}>
-          {mine.text && (
-            <div style={S.commentRow}>
-              <div style={S.commentTop}><span style={S.commentName}>Du</span><StarRow value={mine.stars} size={12} readOnly /></div>
-              <div style={S.commentText}>{mine.text}</div>
-            </div>
-          )}
           {others.filter((r) => r.text).map((r, i) => (
             <div key={i} style={S.commentRow}>
               <div style={S.commentTop}><span style={S.commentName}>{r.name}</span><StarRow value={r.stars} size={12} readOnly /></div>
               <div style={S.commentText}>{r.text}</div>
             </div>
           ))}
-          {mine.stars ? (
-            <div style={S.addComment}>
-              <input style={S.commentInput} maxLength={300} placeholder={mine.text ? "Kommentar bearbeiten…" : "Kommentar hinzufügen (optional)…"} value={draft || mine.text || ""} onChange={(e) => setDraft(e.target.value)} />
-              <button style={S.commentSubmit} onClick={submitComment}>Speichern</button>
-            </div>
-          ) : (
-            <div style={S.hintSmall}>Erst Sterne vergeben, um einen Kommentar zu schreiben.</div>
-          )}
         </div>
+      )}
+      {open && others.filter((r) => r.text).length === 0 && (
+        <div style={S.hintSmall}>Noch keine Kommentare von anderen.</div>
       )}
     </div>
   );
@@ -1777,7 +1789,7 @@ const S = {
   primaryBtn: { width: "100%", padding: "13px 16px", borderRadius: 10, border: "none", background: "#3F6B4A", color: "#F7F4EC", fontWeight: 700, fontSize: 15, cursor: "pointer" },
   secondaryBtn: { padding: "13px 16px", borderRadius: 10, border: "1.5px solid #D8D5C6", background: "transparent", color: "#5B5B4E", fontWeight: 600, fontSize: 14, cursor: "pointer" },
   dangerBtn: { padding: "10px 14px", borderRadius: 10, border: "1.5px solid #E0BEBE", background: "transparent", color: "#8a2e2e", fontWeight: 600, fontSize: 13, cursor: "pointer" },
-  app: { fontFamily: "'Inter', sans-serif", background: "#EFEDE3", height: "100vh", maxHeight: "100vh", overflow: "hidden", display: "flex", flexDirection: "column", maxWidth: 480, margin: "0 auto", position: "relative" },
+  app: { fontFamily: "'Inter', sans-serif", background: "#EFEDE3", position: "fixed", top: 0, left: 0, right: 0, bottom: 0, overflow: "hidden", display: "flex", flexDirection: "column", maxWidth: 480, margin: "0 auto" },
   header: { background: "#223022", padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" },
   headerEyebrow: { fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: "#9CBBA3", letterSpacing: 1 },
   headerName2: { fontFamily: "'Big Shoulders Display', sans-serif", fontWeight: 800, fontSize: 22, color: "#F7F4EC", letterSpacing: 1 },
