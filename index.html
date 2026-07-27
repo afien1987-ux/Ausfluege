@@ -143,6 +143,11 @@ const REFRESH_MS = 6000;
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
+function plusDays(dateStr, days) {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
 function formatDate(dateStr) {
   if (!dateStr) return "";
   try {
@@ -1063,7 +1068,7 @@ function RundenTab({ rounds, destinations, activeDestinations, members, roomCode
 function RoundCreateForm({ activeDestinations, existingCount, onSubmit, onCancel }) {
   const [alias, setAlias] = useState(`Runde ${existingCount + 1}`);
   const [startDate, setStartDate] = useState(todayStr());
-  const [endDate, setEndDate] = useState(todayStr());
+  const [endDate, setEndDate] = useState(plusDays(todayStr(), 7));
   const [selectedIds, setSelectedIds] = useState([]);
   const [candidateDays, setCandidateDays] = useState([]);
 
@@ -1565,7 +1570,7 @@ function TermineTab({ termine, activeDestinations, members, roomCode, name, onCr
 
 function TerminCreateForm({ activeDestinations, onCancel, onSubmit }) {
   const [destinationId, setDestinationId] = useState(activeDestinations[0]?.id || "");
-  const [endDate, setEndDate] = useState(todayStr());
+  const [endDate, setEndDate] = useState(plusDays(todayStr(), 7));
   const [candidateDays, setCandidateDays] = useState([]);
 
   const addDay = () => setCandidateDays([...candidateDays, endDate]);
