@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Admin – Ausflugs-Pool</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+  html, body { margin: 0; padding: 0; background: #EFEDE3; font-family: 'Inter', sans-serif; color: #223022; }
+  * { box-sizing: border-box; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 20px 16px 60px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 24px 0 10px; color: #3F6B4A; }
+  .sub { font-size: 13px; color: #8A8A7A; margin: 0 0 20px; }
+  .card { background: #F7F4EC; border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+  input, select { width: 100%; padding: 11px 12px; border-radius: 10px; border: 1px solid #D8D5C6; background: #FFFFFF; font-size: 14px; font-family: inherit; margin-bottom: 8px; }
+  button { font-family: inherit; cursor: pointer; }
+  .primary { width: 100%; padding: 13px 16px; border-radius: 10px; border: none; background: #3F6B4A; color: #F7F4EC; font-weight: 700; font-size: 15px; }
+  .primary:disabled { opacity: 0.5; cursor: default; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; background: #FFFFFF; border-radius: 10px; border: 1px solid #E0DDCE; margin-bottom: 8px; }
+  .row .label { font-size: 14px; font-weight: 600; }
+  .row .meta { font-size: 12px; color: #8A8A7A; }
+  .danger { padding: 8px 12px; border-radius: 8px; border: 1.5px solid #E0BEBE; background: transparent; color: #8a2e2e; font-weight: 600; font-size: 12.5px; white-space: nowrap; }
+  .status { padding: 10px 12px; border-radius: 10px; font-size: 13.5px; margin-bottom: 14px; display: none; }
+  .status.error { display: block; background: #FBEAEA; color: #8a2e2e; }
+  .status.ok { display: block; background: #E4EBE1; color: #3F6B4A; }
+  .empty { font-size: 13.5px; color: #8A8A7A; padding: 8px 2px; }
+  #content { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🛠 Admin – Ausflugs-Pool</h1>
+  <p class="sub">Nur über diesen direkten Link erreichbar. Änderungen hier sind sofort wirksam und nicht rückgängig zu machen.</p>
+
+  <div class="card">
+    <label style="font-size:12px;font-weight:700;color:#8A8A7A;">FAMILIEN-CODE</label>
+    <input id="roomCodeInput" placeholder="z. B. MEYER26" autocapitalize="characters" />
+    <button class="primary" id="loadBtn">Laden</button>
+  </div>
+
+  <div id="status" class="status"></div>
+
+  <div id="content">
+    <h2>Mitglieder</h2>
+    <div id="membersList"></div>
+
+    <h2>Namen zusammenführen</h2>
+    <div class="card">
+      <label style="font-size:12px;font-weight:700;color:#8A8A7A;">QUELLE (wird aufgelöst)</label>
+      <select id="mergeSource"></select>
+      <label style="font-size:12px;font-weight:700;color:#8A8A7A;">ZIEL (bleibt bestehen, gewinnt bei Konflikten)</label>
+      <select id="mergeTarget"></select>
+      <button class="primary" id="mergeBtn">Zusammenführen</button>
+    </div>
+
+    <h2>Ziele</h2>
+    <div id="destList"></div>
+  </div>
+</div>
+
+<script type="module">
+  import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+  window.supabase = { createClient };
+</script>
+
+<script>
+function boot() {
+  var SUPABASE_URL = "https://esfmotvtrkucoewovaep.supabase.co";
+  var SUPABASE_ANON_KEY = "sb_publishable_4ZBydXtPrCA3HTnfkTnVsw_wJWQQhZ0";
+  var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  var TABLE = "pool_data";
+
+  var CATEGORY_LABEL = { draussen: "🌲 Draußen", drinnen: "🏛️ Drinnen" };
+
+  var roomCode = "";
+  var members = [];
+  var destinations = [];
+
+  function showStatus(message, isError) {
+    var el = document.getElementById("status");
+    el.textContent = message;
+    el.className = "status " + (isError ? "error" : "ok");
+  }
+  function clearStatus() {
+    var el = document.getElementById("status");
+    el.className = "status";
+    el.textContent = "";
+  }
+
+  async function dbGet(key) {
+    var res = await sb.from(TABLE).select("data_value").eq("room_code", roomCode).eq("data_key", key).maybeSingle();
+    if (res.error) throw res.error;
+    return res.data ? res.data.data_value : null;
+  }
+  async function dbSet(key, value) {
+    var res = await sb.from(TABLE).upsert(
+      { room_code: roomCode, data_key: key, data_value: value, updated_at: new Date().toISOString() },
+      { onConflict: "room_code,data_key" }
+    );
+    if (res.error) throw res.error;
+  }
+  async function dbDelete(key) {
+    var res = await sb.from(TABLE).delete().eq("room_code", roomCode).eq("data_key", key);
+    if (res.error) throw res.error;
+  }
+  async function dbListKeys(prefix) {
+    var res = await sb.from(TABLE).select("data_key").eq("room_code", roomCode).like("data_key", prefix + "%");
+    if (res.error) throw res.error;
+    return res.data.map(function (r) { return r.data_key; });
+  }
+
+  async function loadRoom() {
+    var code = document.getElementById("roomCodeInput").value.trim().toUpperCase();
+    if (!code) return;
+    roomCode = code;
+    clearStatus();
+    document.getElementById("loadBtn").disabled = true;
+    document.getElementById("loadBtn").textContent = "Lädt …";
+    try {
+      members = (await dbGet("members")) || [];
+      destinations = (await dbGet("destinations")) || [];
+      document.getElementById("content").style.display = "block";
+      renderMembers();
+      renderMergeSelects();
+      renderDestinations();
+      showStatus("Pool \"" + roomCode + "\" geladen: " + members.length + " Mitglieder, " + destinations.length + " Ziele.", false);
+    } catch (e) {
+      showStatus("Fehler beim Laden: " + (e.message || e), true);
+      document.getElementById("content").style.display = "none";
+    } finally {
+      document.getElementById("loadBtn").disabled = false;
+      document.getElementById("loadBtn").textContent = "Laden";
+    }
+  }
+
+  function renderMembers() {
+    var el = document.getElementById("membersList");
+    el.innerHTML = "";
+    if (members.length === 0) {
+      el.innerHTML = '<div class="empty">Keine Mitglieder.</div>';
+      return;
+    }
+    members.forEach(function (name) {
+      var row = document.createElement("div");
+      row.className = "row";
+      var label = document.createElement("span");
+      label.className = "label";
+      label.textContent = name;
+      var btn = document.createElement("button");
+      btn.className = "danger";
+      btn.textContent = "Entfernen";
+      btn.onclick = function () { deleteMember(name); };
+      row.appendChild(label);
+      row.appendChild(btn);
+      el.appendChild(row);
+    });
+  }
+
+  function renderMergeSelects() {
+    ["mergeSource", "mergeTarget"].forEach(function (id) {
+      var sel = document.getElementById(id);
+      sel.innerHTML = "";
+      members.forEach(function (name) {
+        var opt = document.createElement("option");
+        opt.value = name;
+        opt.textContent = name;
+        sel.appendChild(opt);
+      });
+    });
+    document.getElementById("mergeBtn").disabled = members.length < 2;
+  }
+
+  function renderDestinations() {
+    var el = document.getElementById("destList");
+    el.innerHTML = "";
+    if (destinations.length === 0) {
+      el.innerHTML = '<div class="empty">Keine Ziele.</div>';
+      return;
+    }
+    destinations.forEach(function (d) {
+      var row = document.createElement("div");
+      row.className = "row";
+      var textWrap = document.createElement("div");
+      var label = document.createElement("div");
+      label.className = "label";
+      label.textContent = d.name;
+      var meta = document.createElement("div");
+      meta.className = "meta";
+      meta.textContent = (CATEGORY_LABEL[d.category] || d.category || "") + (d.proposedBy ? " · Vorschlag von " + d.proposedBy : "");
+      textWrap.appendChild(label);
+      textWrap.appendChild(meta);
+      var btn = document.createElement("button");
+      btn.className = "danger";
+      btn.textContent = "Entfernen";
+      btn.onclick = function () { deleteDestination(d); };
+      row.appendChild(textWrap);
+      row.appendChild(btn);
+      el.appendChild(row);
+    });
+  }
+
+  async function deleteMember(name) {
+    if (!window.confirm('Mitglied "' + name + '" inkl. aller Bewertungen und Abstimmungen entfernen? Das kann nicht rückgängig gemacht werden.')) return;
+    clearStatus();
+    try {
+      members = members.filter(function (m) { return m !== name; });
+      await dbSet("members", members);
+
+      var ratingKeys = await dbListKeys("ratings:");
+      for (var i = 0; i < ratingKeys.length; i++) {
+        var key = ratingKeys[i];
+        var value = await dbGet(key);
+        if (value && Object.prototype.hasOwnProperty.call(value, name)) {
+          delete value[name];
+          await dbSet(key, value);
+        }
+      }
+
+      var prefixes = ["votes:", "dayvotes:", "termintage:"];
+      for (var p = 0; p < prefixes.length; p++) {
+        var keys = await dbListKeys(prefixes[p]);
+        var toDelete = keys.filter(function (k) { return k.endsWith(":" + name); });
+        for (var j = 0; j < toDelete.length; j++) {
+          await dbDelete(toDelete[j]);
+        }
+      }
+
+      renderMembers();
+      renderMergeSelects();
+      showStatus('Mitglied "' + name + '" entfernt.', false);
+    } catch (e) {
+      showStatus("Fehler beim Entfernen: " + (e.message || e), true);
+    }
+  }
+
+  async function deleteDestination(dest) {
+    if (!window.confirm('Ziel "' + dest.name + '" wirklich entfernen? Das kann nicht rückgängig gemacht werden.')) return;
+    clearStatus();
+    try {
+      destinations = destinations.filter(function (d) { return d.id !== dest.id; });
+      await dbSet("destinations", destinations);
+      await dbDelete("ratings:" + dest.id);
+      renderDestinations();
+      showStatus('Ziel "' + dest.name + '" entfernt.', false);
+    } catch (e) {
+      showStatus("Fehler beim Entfernen: " + (e.message || e), true);
+    }
+  }
+
+  async function previewMerge(source, target) {
+    var ratingsAffected = 0, ratingsConflict = 0;
+    var ratingKeys = await dbListKeys("ratings:");
+    for (var i = 0; i < ratingKeys.length; i++) {
+      var value = await dbGet(ratingKeys[i]);
+      if (value && Object.prototype.hasOwnProperty.call(value, source)) {
+        ratingsAffected++;
+        if (Object.prototype.hasOwnProperty.call(value, target)) ratingsConflict++;
+      }
+    }
+    var perPrefix = {};
+    var prefixes = ["votes:", "dayvotes:", "termintage:"];
+    for (var p = 0; p < prefixes.length; p++) {
+      var keys = await dbListKeys(prefixes[p]);
+      var sourceKeys = keys.filter(function (k) { return k.endsWith(":" + source); });
+      var conflicts = sourceKeys.filter(function (k) {
+        var targetKey = k.slice(0, -source.length) + target;
+        return keys.indexOf(targetKey) !== -1;
+      });
+      perPrefix[prefixes[p]] = { total: sourceKeys.length, conflicts: conflicts.length };
+    }
+    return { ratingsAffected: ratingsAffected, ratingsConflict: ratingsConflict, perPrefix: perPrefix };
+  }
+
+  async function runMerge(source, target) {
+    var ratingKeys = await dbListKeys("ratings:");
+    for (var i = 0; i < ratingKeys.length; i++) {
+      var key = ratingKeys[i];
+      var value = await dbGet(key);
+      if (value && Object.prototype.hasOwnProperty.call(value, source)) {
+        if (!Object.prototype.hasOwnProperty.call(value, target)) {
+          value[target] = value[source];
+        }
+        delete value[source];
+        await dbSet(key, value);
+      }
+    }
+
+    var prefixes = ["votes:", "dayvotes:", "termintage:"];
+    for (var p = 0; p < prefixes.length; p++) {
+      var keys = await dbListKeys(prefixes[p]);
+      var sourceKeys = keys.filter(function (k) { return k.endsWith(":" + source); });
+      for (var j = 0; j < sourceKeys.length; j++) {
+        var sourceKey = sourceKeys[j];
+        var targetKey = sourceKey.slice(0, -source.length) + target;
+        if (keys.indexOf(targetKey) !== -1) {
+          await dbDelete(sourceKey);
+        } else {
+          var v = await dbGet(sourceKey);
+          await dbSet(targetKey, v);
+          await dbDelete(sourceKey);
+        }
+      }
+    }
+
+    var changedDest = false;
+    destinations = destinations.map(function (d) {
+      if (d.proposedBy === source) { changedDest = true; return Object.assign({}, d, { proposedBy: target }); }
+      return d;
+    });
+    if (changedDest) await dbSet("destinations", destinations);
+
+    members = members.filter(function (m) { return m !== source; });
+    if (members.indexOf(target) === -1) members.push(target);
+    await dbSet("members", members);
+  }
+
+  async function mergeNames() {
+    var source = document.getElementById("mergeSource").value;
+    var target = document.getElementById("mergeTarget").value;
+    if (!source || !target || source === target) {
+      showStatus("Bitte zwei unterschiedliche Namen wählen.", true);
+      return;
+    }
+    clearStatus();
+    document.getElementById("mergeBtn").disabled = true;
+    document.getElementById("mergeBtn").textContent = "Prüfe …";
+    try {
+      var preview = await previewMerge(source, target);
+      var lines = [
+        preview.ratingsAffected + " Bewertung(en)" + (preview.ratingsConflict ? " (" + preview.ratingsConflict + "x Konflikt, \"" + target + "\" gewinnt)" : ""),
+        preview.perPrefix["votes:"].total + " Punkte-Voting(s)" + (preview.perPrefix["votes:"].conflicts ? " (" + preview.perPrefix["votes:"].conflicts + "x Konflikt)" : ""),
+        preview.perPrefix["dayvotes:"].total + " Tages-Abstimmung(en)" + (preview.perPrefix["dayvotes:"].conflicts ? " (" + preview.perPrefix["dayvotes:"].conflicts + "x Konflikt)" : ""),
+        preview.perPrefix["termintage:"].total + " Terminantwort(en)" + (preview.perPrefix["termintage:"].conflicts ? " (" + preview.perPrefix["termintage:"].conflicts + "x Konflikt)" : ""),
+      ];
+      var msg = '"' + source + '" in "' + target + '" zusammenführen?\n\n' + lines.join("\n") + "\n\nDas kann nicht rückgängig gemacht werden.";
+      if (!window.confirm(msg)) return;
+      document.getElementById("mergeBtn").textContent = "Führe zusammen …";
+      await runMerge(source, target);
+      renderMembers();
+      renderMergeSelects();
+      renderDestinations();
+      showStatus('"' + source + '" wurde in "' + target + '" zusammengeführt.', false);
+    } catch (e) {
+      showStatus("Fehler beim Zusammenführen: " + (e.message || e), true);
+    } finally {
+      document.getElementById("mergeBtn").disabled = members.length < 2;
+      document.getElementById("mergeBtn").textContent = "Zusammenführen";
+    }
+  }
+
+  document.getElementById("loadBtn").addEventListener("click", loadRoom);
+  document.getElementById("roomCodeInput").addEventListener("keydown", function (e) { if (e.key === "Enter") loadRoom(); });
+  document.getElementById("mergeBtn").addEventListener("click", mergeNames);
+}
+
+if (document.readyState === "complete" || document.readyState === "interactive") {
+  boot();
+} else {
+  document.addEventListener("DOMContentLoaded", boot);
+}
+</script>
+</body>
+</html>
