@@ -29,6 +29,7 @@
 <script>
   window.SUPABASE_URL = "https://esfmotvtrkucoewovaep.supabase.co";
   window.SUPABASE_ANON_KEY = "sb_publishable_4ZBydXtPrCA3HTnfkTnVsw_wJWQQhZ0";
+  window.VAPID_PUBLIC_KEY = "BNejt8nUSLKnJRlXf7vnCn1t-hTYhjjXhF_xKAyyQMASKuCl45qAUDtfmBk6y_igzEbERzryJeUDk2OqNyVhhCs";
 </script>
 <!-- ================================================== -->
 
@@ -491,7 +492,7 @@ function App() {
       <ToastHost />
       <Header roomCode={roomCode} name={name} onRefresh={refresh} onSwitchPool={switchPool} onMenu={() => setMenuOpen(true)} busy={busy} />
       {menuOpen ? (
-        <MenuOverlay onClose={() => setMenuOpen(false)} />
+        <MenuOverlay onClose={() => setMenuOpen(false)} roomCode={roomCode} name={name} />
       ) : (
         <>
           <div style={S.content}>
@@ -1355,12 +1356,13 @@ function RankingList({ ranking }) {
   );
 }
 
-function MenuOverlay({ onClose }) {
+function MenuOverlay({ onClose, roomCode, name }) {
   const [page, setPage] = useState("menu");
   useBackClose(page !== "menu", () => setPage("menu"));
 
   const items = [
     { id: "hilfe", label: "Hilfe", emoji: "❓" },
+    { id: "push", label: "Benachrichtigungen", emoji: "🔔" },
     { id: "impressum", label: "Impressum", emoji: "⚖️" },
     { id: "datenschutz", label: "Datenschutz", emoji: "🔒" },
     { id: "barrierefreiheit", label: "Barrierefreiheit", emoji: "♿" },
@@ -1388,9 +1390,93 @@ function MenuOverlay({ onClose }) {
       <div style={S.tabContent}>
         <button style={S.backBtn} onClick={() => setPage("menu")}>← Zurück zum Menü</button>
         {page === "hilfe" && <HilfeTab />}
+        {page === "push" && <PushSettingsPage roomCode={roomCode} name={name} />}
         {page === "impressum" && <ImpressumPage />}
         {page === "datenschutz" && <DatenschutzPage />}
         {page === "barrierefreiheit" && <BarrierefreiheitPage />}
+      </div>
+    </div>
+  );
+}
+
+function PushSettingsPage({ roomCode, name }) {
+  const [status, setStatus] = useState("checking"); // checking | unsupported | denied | subscribed | unsubscribed
+  const [busy, setBusy] = useState(false);
+
+  const checkStatus = useCallback(async () => {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+      setStatus("unsupported");
+      return;
+    }
+    try {
+      const reg = await navigator.serviceWorker.register("/sw.js");
+      if (Notification.permission === "denied") { setStatus("denied"); return; }
+      const sub = await reg.pushManager.getSubscription();
+      setStatus(sub ? "subscribed" : "unsubscribed");
+    } catch (e) {
+      setStatus("unsupported");
+    }
+  }, []);
+
+  useEffect(() => { checkStatus(); }, [checkStatus]);
+
+  const urlBase64ToUint8Array = (base64String) => {
+    const raw = atob(base64String.replace(/-/g, "+").replace(/_/g, "/"));
+    return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+  };
+
+  const subscribe = async () => {
+    setBusy(true);
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") { setStatus("denied"); setBusy(false); return; }
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(window.VAPID_PUBLIC_KEY),
+      });
+      const ok = await dbSet(roomCode, `pushsub:${name}`, sub.toJSON());
+      setStatus(ok ? "subscribed" : "unsubscribed");
+    } catch (e) {
+      notifyError("Benachrichtigungen konnten nicht aktiviert werden.");
+    }
+    setBusy(false);
+  };
+
+  const unsubscribe = async () => {
+    setBusy(true);
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) await sub.unsubscribe();
+      await dbSet(roomCode, `pushsub:${name}`, null);
+      setStatus("unsubscribed");
+    } catch (e) {}
+    setBusy(false);
+  };
+
+  return (
+    <div style={S.tabContent}>
+      <div style={S.helpIntro}>Erhalte eine Push-Benachrichtigung, sobald ein neues Ziel, eine neue Runde oder eine neue Terminfindung dazukommt – auch wenn die App gerade nicht offen ist.</div>
+      <div style={S.helpCard}>
+        {status === "checking" && <p style={S.helpText}>Prüfe Status …</p>}
+        {status === "unsupported" && (
+          <p style={S.helpText}>Dein Browser unterstützt keine Push-Benachrichtigungen. Auf dem iPhone: die App zuerst über "Zum Startbildschirm hinzufügen" installieren und von dort aus öffnen (iOS 16.4 oder neuer nötig).</p>
+        )}
+        {status === "denied" && (
+          <p style={S.helpText}>Benachrichtigungen wurden blockiert. Erlaube sie über die Website-Einstellungen deines Browsers, um sie hier zu aktivieren.</p>
+        )}
+        {status === "unsubscribed" && (
+          <button style={{ ...S.primaryBtn, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={subscribe}>
+            🔔 Benachrichtigungen aktivieren
+          </button>
+        )}
+        {status === "subscribed" && (
+          <>
+            <p style={S.helpText}>✓ Auf diesem Gerät aktiv.</p>
+            <button style={S.secondaryBtn} disabled={busy} onClick={unsubscribe}>Deaktivieren</button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -1431,6 +1517,10 @@ function DatenschutzPage() {
       <div style={S.helpCard}>
         <div style={S.helpTitle}>Karten</div>
         <p style={S.helpText}>Zur Anzeige eines Ortes wird eine Karte von Google Maps eingebettet. Dabei gilt die Datenschutzerklärung von Google.</p>
+      </div>
+      <div style={S.helpCard}>
+        <div style={S.helpTitle}>Push-Benachrichtigungen</div>
+        <p style={S.helpText}>Aktiviert ihr Benachrichtigungen, wird ein technisches Push-Abo (kein Klarname, keine Nachrichteninhalte) in derselben Datenbank gespeichert, um euch bei Neuigkeiten zu benachrichtigen. Übermittlung läuft über den Push-Dienst eures Browsers/Betriebssystems (z. B. Google, Apple, Mozilla).</p>
       </div>
       <div style={S.helpCard}>
         <div style={S.helpTitle}>Kein Tracking</div>
