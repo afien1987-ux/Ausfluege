@@ -678,6 +678,8 @@ function ZieleTab({ destinations, onAdd, onRemove, onArchive, onEdit, ratingsByD
   const [costFilter, setCostFilter] = useState([]);
   const [durationFilter, setDurationFilter] = useState([]);
   const [sortBy, setSortBy] = useState("none");
+  const [showFilters, setShowFilters] = useState(false);
+  const activeFilterCount = categoryFilter.length + costFilter.length + durationFilter.length + (sortBy !== "none" ? 1 : 0);
 
   useBackClose(showForm, () => setShowForm(false));
   useBackClose(!!openId, () => setOpenId(null));
@@ -786,52 +788,64 @@ function ZieleTab({ destinations, onAdd, onRemove, onArchive, onEdit, ratingsByD
       )}
       {destinations.length > 0 && !showForm && (
         <div style={S.formCard}>
-          <input
-            style={S.input}
-            placeholder="Suche nach Name, Beschreibung oder Ort…"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-          <div style={S.formRow}>
-            {CATEGORY.map((c) => (
-              <Chip
-                key={c.id}
-                active={categoryFilter.includes(c.id)}
-                onClick={() => setCategoryFilter((prev) => prev.includes(c.id) ? prev.filter((x) => x !== c.id) : [...prev, c.id])}
-              >
-                {c.emoji} {c.label}
-              </Chip>
-            ))}
+          <div style={{ display: "flex", gap: 6 }}>
+            <input
+              style={{ ...S.input, flex: 1 }}
+              placeholder="Suche nach Name, Beschreibung oder Ort…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            <button
+              style={{ ...S.secondaryBtn, whiteSpace: "nowrap", opacity: activeFilterCount > 0 ? 1 : 0.7 }}
+              onClick={() => setShowFilters((v) => !v)}
+            >
+              Filter{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""} {showFilters ? "▲" : "▼"}
+            </button>
           </div>
-          <div style={S.formRow}>
-            {COST.map((c) => (
-              <Chip
-                key={c.id}
-                active={costFilter.includes(c.id)}
-                onClick={() => setCostFilter((prev) => prev.includes(c.id) ? prev.filter((x) => x !== c.id) : [...prev, c.id])}
-              >
-                {c.label}
-              </Chip>
-            ))}
-          </div>
-          <div style={S.formRow}>
-            {DURATION.map((d) => (
-              <Chip
-                key={d.id}
-                active={durationFilter.includes(d.id)}
-                onClick={() => setDurationFilter((prev) => prev.includes(d.id) ? prev.filter((x) => x !== d.id) : [...prev, d.id])}
-              >
-                {d.label}
-              </Chip>
-            ))}
-          </div>
-          <select style={S.input} value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-            <option value="none">Sortierung: Standard</option>
-            <option value="alpha_asc">Alphabet A → Z</option>
-            <option value="alpha_desc">Alphabet Z → A</option>
-            <option value="distance">Entfernung: nah → fern</option>
-            <option value="rating">Bewertung: beste zuerst</option>
-          </select>
+          {showFilters && (
+            <>
+              <div style={S.formRow}>
+                {CATEGORY.map((c) => (
+                  <Chip
+                    key={c.id}
+                    active={categoryFilter.includes(c.id)}
+                    onClick={() => setCategoryFilter((prev) => prev.includes(c.id) ? prev.filter((x) => x !== c.id) : [...prev, c.id])}
+                  >
+                    {c.emoji} {c.label}
+                  </Chip>
+                ))}
+              </div>
+              <div style={S.formRow}>
+                {COST.map((c) => (
+                  <Chip
+                    key={c.id}
+                    active={costFilter.includes(c.id)}
+                    onClick={() => setCostFilter((prev) => prev.includes(c.id) ? prev.filter((x) => x !== c.id) : [...prev, c.id])}
+                  >
+                    {c.label}
+                  </Chip>
+                ))}
+              </div>
+              <div style={S.formRow}>
+                {DURATION.map((d) => (
+                  <Chip
+                    key={d.id}
+                    active={durationFilter.includes(d.id)}
+                    onClick={() => setDurationFilter((prev) => prev.includes(d.id) ? prev.filter((x) => x !== d.id) : [...prev, d.id])}
+                  >
+                    {d.label}
+                  </Chip>
+                ))}
+              </div>
+              <select style={S.input} value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                <option value="none">Sortierung: Standard</option>
+                <option value="alpha_asc">Alphabet A → Z</option>
+                <option value="alpha_desc">Alphabet Z → A</option>
+                <option value="distance">Entfernung: nah → fern</option>
+                <option value="rating">Bewertung: beste zuerst</option>
+              </select>
+            </>
+          )}
         </div>
       )}
       {destinations.length > 0 && visibleDestinations.length === 0 && !showForm && (
