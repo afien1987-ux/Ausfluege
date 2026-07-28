@@ -45,7 +45,7 @@
   <div id="mainArea">
     <div class="card">
       <label style="font-size:12px;font-weight:700;color:#8A8A7A;">FAMILIEN-CODE</label>
-      <input id="roomCodeInput" placeholder="z. B. MEYER26" autocapitalize="characters" />
+      <select id="roomCodeInput"><option value="">Lädt Pools …</option></select>
       <button class="primary" id="loadBtn">Laden</button>
     </div>
 
@@ -98,6 +98,28 @@ function boot() {
     document.getElementById("authGate").style.display = "none";
     document.getElementById("authStatus").className = "status";
     document.getElementById("mainArea").style.display = "block";
+    loadRoomCodes();
+  }
+  async function loadRoomCodes() {
+    var sel = document.getElementById("roomCodeInput");
+    try {
+      var res = await sb.from(TABLE).select("room_code");
+      if (res.error) throw res.error;
+      var codes = Array.from(new Set(res.data.map(function (r) { return r.room_code; }))).sort();
+      sel.innerHTML = "";
+      if (codes.length === 0) {
+        sel.innerHTML = '<option value="">Keine Pools gefunden</option>';
+        return;
+      }
+      codes.forEach(function (code) {
+        var opt = document.createElement("option");
+        opt.value = code;
+        opt.textContent = code;
+        sel.appendChild(opt);
+      });
+    } catch (e) {
+      sel.innerHTML = '<option value="">Fehler beim Laden der Pools</option>';
+    }
   }
   async function tryUnlock() {
     var pw = document.getElementById("passwordInput").value;
