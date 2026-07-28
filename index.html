@@ -1732,34 +1732,56 @@ function TerminCreateForm({ activeDestinations, onCancel, onSubmit }) {
 function TerminDetail({ termin, destination, members, roomCode, name, onBack, onDelete }) {
   const status = todayStr() > termin.endDate ? "beendet" : "aktiv";
   const [dayVotes, setDayVotes] = useState({});
-  const [myDays, setMyDays] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [draftDays, setDraftDays] = useState([]);
+  const [draftCannotAny, setDraftCannotAny] = useState(false);
+  const [draftComment, setDraftComment] = useState("");
+  const [justSaved, setJustSaved] = useState(false);
   const cat = CATEGORY.find((c) => c.id === destination.category);
 
   const load = useCallback(async () => {
     setLoading(true);
     const dv = await fetchTerminDayVotes(roomCode, termin.id);
     setDayVotes(dv);
-    setMyDays(dv[name] || []);
+    const mine = dv[name];
+    setDraftDays((mine && mine.days) || []);
+    setDraftCannotAny(!!(mine && mine.cannotAny));
+    setDraftComment((mine && mine.comment) || "");
     setLoading(false);
   }, [roomCode, termin.id, name]);
 
   useEffect(() => { load(); }, [load]);
 
-  const saveMyDays = async (days) => {
-    setMyDays(days);
-    await dbSet(roomCode, `termintage:${termin.id}:${name}`, days);
-    setDayVotes((prev) => ({ ...prev, [name]: days }));
-  };
+  const mine = dayVotes[name];
+  const dirty =
+    JSON.stringify(draftDays) !== JSON.stringify((mine && mine.days) || []) ||
+    draftCannotAny !== !!(mine && mine.cannotAny) ||
+    draftComment !== ((mine && mine.comment) || "");
+
   const toggleDay = (day) => {
-    const next = myDays.includes(day) ? myDays.filter((d) => d !== day) : [...myDays, day];
-    saveMyDays(next);
+    setDraftCannotAny(false);
+    setDraftDays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]));
+  };
+  const toggleCannotAny = () => {
+    setDraftCannotAny((prev) => {
+      const next = !prev;
+      if (next) setDraftDays([]);
+      return next;
+    });
+  };
+
+  const save = async () => {
+    const response = { days: draftCannotAny ? [] : draftDays, cannotAny: draftCannotAny, comment: draftComment.trim() || null };
+    await dbSet(roomCode, `termintage:${termin.id}:${name}`, response);
+    setDayVotes((prev) => ({ ...prev, [name]: response }));
+    setJustSaved(true);
+    setTimeout(() => setJustSaved(false), 2000);
   };
 
   const dayCounts = useMemo(() => {
     const arr = termin.candidateDays.map((day) => ({
       day,
-      count: Object.values(dayVotes).filter((list) => (list || []).includes(day)).length,
+      count: Object.values(dayVotes).filter((v) => (v && v.days || []).includes(day)).length,
     }));
     arr.sort((a, b) => b.count - a.count);
     let rank = 0, last = null;
@@ -1767,8 +1789,11 @@ function TerminDetail({ termin, destination, members, roomCode, name, onBack, on
   }, [termin.candidateDays, dayVotes]);
   const maxCount = Math.max(...dayCounts.map((d) => d.count), 1);
 
-  const votedMembers = members.filter((m) => dayVotes[m] && dayVotes[m].length > 0);
-  const pendingMembers = members.filter((m) => !votedMembers.includes(m));
+  const respondedMembers = members.filter((m) => dayVotes[m]);
+  const pendingMembers = members.filter((m) => !respondedMembers.includes(m));
+  const cannotAnyMembers = members
+    .filter((m) => dayVotes[m] && dayVotes[m].cannotAny)
+    .map((m) => ({ name: m, comment: dayVotes[m].comment }));
 
   return (
     <div style={S.tabContent}>
@@ -1790,14 +1815,36 @@ function TerminDetail({ termin, destination, members, roomCode, name, onBack, on
       {!loading && status === "aktiv" && (
         <>
           <div style={S.sectionLabel}>An welchem Tag kannst du?</div>
-          <div style={S.voteHint}>Wähl alle Tage aus, an denen es bei dir passt – jederzeit änderbar.</div>
+          <div style={S.voteHint}>Wähl alle Tage aus, an denen es bei dir passt, oder markiere unten, dass keiner passt.</div>
           {termin.candidateDays.map((day) => (
-            <label key={day} style={S.checkRow}>
-              <input type="checkbox" checked={myDays.includes(day)} onChange={() => toggleDay(day)} />
+            <label key={day} style={{ ...S.checkRow, opacity: draftCannotAny ? 0.4 : 1 }}>
+              <input type="checkbox" checked={draftDays.includes(day)} disabled={draftCannotAny} onChange={() => toggleDay(day)} />
               <span>{formatDate(day)}</span>
             </label>
           ))}
+
+          <label style={S.checkRow}>
+            <input type="checkbox" checked={draftCannotAny} onChange={toggleCannotAny} />
+            <span>Keiner der Termine passt mir</span>
+          </label>
+
+          <textarea
+            style={{ ...S.input, minHeight: 50, resize: "vertical" }}
+            maxLength={300}
+            placeholder="Kommentar (optional) – z. B. warum, oder Vorschlag für einen anderen Tag"
+            value={draftComment}
+            onChange={(e) => setDraftComment(e.target.value)}
+          />
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button style={{ ...S.primaryBtn, opacity: dirty ? 1 : 0.45 }} disabled={!dirty} onClick={save}>
+              Antwort speichern
+            </button>
+            {justSaved && <span style={{ fontSize: 12, color: "#3F6B4A", fontWeight: 700 }}>✓ Gespeichert</span>}
+          </div>
+
           {pendingMembers.length > 0 && <div style={S.pendingBanner}>Noch offen: {pendingMembers.join(", ")}</div>}
+
           <div style={S.sectionLabel}>Terminstand</div>
           {dayCounts.map((dc) => (
             <div key={dc.day} style={S.rankRow}>
@@ -1809,6 +1856,19 @@ function TerminDetail({ termin, destination, members, roomCode, name, onBack, on
               <div style={S.rankPoints}>{dc.count}</div>
             </div>
           ))}
+
+          {cannotAnyMembers.length > 0 && (
+            <>
+              <div style={S.sectionLabel}>Kann an keinem der Termine ({cannotAnyMembers.length})</div>
+              {cannotAnyMembers.map((c) => (
+                <div key={c.name} style={S.commentRow}>
+                  <div style={S.commentTop}><span style={S.commentName}>{c.name}</span></div>
+                  {c.comment && <div style={S.commentText}>{c.comment}</div>}
+                </div>
+              ))}
+            </>
+          )}
+
           <button style={S.dangerBtn} onClick={onDelete}>Terminfindung löschen</button>
         </>
       )}
@@ -1823,6 +1883,17 @@ function TerminDetail({ termin, destination, members, roomCode, name, onBack, on
               <div style={S.rankPoints}>{dc.count}</div>
             </div>
           ))}
+          {cannotAnyMembers.length > 0 && (
+            <>
+              <div style={S.sectionLabel}>Konnte an keinem Termin ({cannotAnyMembers.length})</div>
+              {cannotAnyMembers.map((c) => (
+                <div key={c.name} style={S.commentRow}>
+                  <div style={S.commentTop}><span style={S.commentName}>{c.name}</span></div>
+                  {c.comment && <div style={S.commentText}>{c.comment}</div>}
+                </div>
+              ))}
+            </>
+          )}
         </>
       )}
     </div>
