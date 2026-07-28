@@ -692,7 +692,13 @@ function ZieleTab({ destinations, onAdd, onRemove, onArchive, onEdit, ratingsByD
     (async () => {
       for (const d of destinations) {
         if (!d.location || distances[d.id] !== undefined) continue;
-        const coords = await geocodeAddress(d.location);
+        let coords;
+        if (typeof d.lat === "number" && typeof d.lon === "number") {
+          coords = { lat: d.lat, lon: d.lon };
+        } else {
+          coords = await geocodeAddress(d.location);
+          await new Promise((r) => setTimeout(r, 1100));
+        }
         if (cancelled) return;
         if (coords) {
           const km = haversineKm(userPos.lat, userPos.lon, coords.lat, coords.lon);
@@ -700,12 +706,11 @@ function ZieleTab({ destinations, onAdd, onRemove, onArchive, onEdit, ratingsByD
         } else {
           setDistances((prev) => ({ ...prev, [d.id]: null }));
         }
-        await new Promise((r) => setTimeout(r, 1100));
       }
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line
-  }, [userPos, destinations.map((d) => d.id + ":" + (d.location || "")).join("|")]);
+  }, [userPos, destinations.map((d) => d.id + ":" + (d.location || "") + ":" + (d.lat ?? "") + ":" + (d.lon ?? "")).join("|")]);
 
   const open = destinations.find((d) => d.id === openId);
   if (open) {
@@ -931,7 +936,7 @@ function DestDetail({ d, ratings, onRate, onArchive, onRemove, onEdit, onBack, n
   );
 }
 
-function LocationAutocomplete({ value, onChange }) {
+function LocationAutocomplete({ value, onChange, onCoordsChange }) {
   const [suggestions, setSuggestions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showList, setShowList] = useState(false);
@@ -960,7 +965,7 @@ function LocationAutocomplete({ value, onChange }) {
         style={S.input}
         placeholder="z. B. Steinstraße 14, Konstanz"
         value={value}
-        onChange={(e) => { onChange(e.target.value); setShowList(true); }}
+        onChange={(e) => { onChange(e.target.value); onCoordsChange && onCoordsChange(null); setShowList(true); }}
         onFocus={() => setShowList(true)}
         onBlur={() => setTimeout(() => setShowList(false), 150)}
       />
@@ -971,7 +976,12 @@ function LocationAutocomplete({ value, onChange }) {
             <button
               key={i}
               style={S.suggestItem}
-              onMouseDown={() => { onChange(s.display_name); setSuggestions([]); setShowList(false); }}
+              onMouseDown={() => {
+                onChange(s.display_name);
+                onCoordsChange && onCoordsChange({ lat: parseFloat(s.lat), lon: parseFloat(s.lon) });
+                setSuggestions([]);
+                setShowList(false);
+              }}
             >
               {s.display_name}
             </button>
@@ -990,6 +1000,9 @@ function AddForm({ onSubmit, onCancel, initial, submitLabel }) {
   const [cost, setCost] = useState(initial?.cost || "guenstig");
   const [photoUrl, setPhotoUrl] = useState(initial?.photoUrl || "");
   const [location, setLocation] = useState(initial?.location || "");
+  const [coords, setCoords] = useState(
+    typeof initial?.lat === "number" && typeof initial?.lon === "number" ? { lat: initial.lat, lon: initial.lon } : null
+  );
 
   const photoValid = isValidUrl(photoUrl);
   const nameValid = name.trim().length > 0 && name.trim().length <= 80;
@@ -1003,6 +1016,8 @@ function AddForm({ onSubmit, onCancel, initial, submitLabel }) {
       category, duration, cost,
       photoUrl: photoUrl.trim(),
       location: location.trim().slice(0, 150),
+      lat: coords?.lat ?? null,
+      lon: coords?.lon ?? null,
     });
   };
 
@@ -1019,7 +1034,7 @@ function AddForm({ onSubmit, onCancel, initial, submitLabel }) {
       {!photoValid && <p style={{ ...S.hint, color: "#8a2e2e" }}>Foto-URL muss mit http:// oder https:// beginnen.</p>}
 
       <label style={S.label}>Ort / Adresse (optional)</label>
-      <LocationAutocomplete value={location} onChange={setLocation} />
+      <LocationAutocomplete value={location} onChange={setLocation} onCoordsChange={setCoords} />
 
       <label style={S.label}>Kategorie</label>
       <div style={S.formRow}>{CATEGORY.map((c) => <Chip key={c.id} active={category === c.id} onClick={() => setCategory(c.id)}>{c.label}</Chip>)}</div>
