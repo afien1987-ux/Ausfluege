@@ -139,7 +139,7 @@ const COST = [
   { id: "teuer", label: "Teurer" },
 ];
 const uid = () => Math.random().toString(36).slice(2, 10);
-const REFRESH_MS = 6000;
+const REFRESH_MS = 30000; // Fallback-Intervall; Realtime übernimmt normalerweise sofort
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
@@ -385,9 +385,29 @@ function App() {
       await ensureMembership(roomCode, name);
       await refresh();
     })();
+    // Fallback-Abfrage, falls die Live-Verbindung mal kurz ausfällt
     const interval = setInterval(refresh, REFRESH_MS);
     return () => clearInterval(interval);
   }, [joined, refresh]);
+
+  const [realtimeTick, setRealtimeTick] = useState(0);
+  useEffect(() => {
+    if (!joined || !roomCode) return;
+    const channel = sb
+      .channel(`room-${roomCode}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "pool_data", filter: `room_code=eq.${roomCode}` },
+        () => {
+          refresh();
+          setRealtimeTick((t) => t + 1);
+        }
+      )
+      .subscribe();
+    return () => {
+      sb.removeChannel(channel);
+    };
+  }, [joined, roomCode, refresh]);
 
   const handleJoin = () => {
     if (!roomCode.trim() || !name.trim()) return;
@@ -509,6 +529,7 @@ function App() {
                 name={name}
                 onCreateRound={createRound}
                 onDeleteRound={deleteRound}
+                realtimeTick={realtimeTick}
               />
             )}
             {tab === "termine" && (
@@ -520,6 +541,7 @@ function App() {
                 name={name}
                 onCreateTermin={createTermin}
                 onDeleteTermin={deleteTermin}
+                realtimeTick={realtimeTick}
               />
             )}
             {tab === "archiv" && (
@@ -1022,7 +1044,7 @@ function Chip({ active, onClick, children }) {
   return <button onClick={onClick} style={{ ...S.chip, background: active ? "#3F6B4A" : "#EFEDE3", color: active ? "#F7F4EC" : "#4A4A3E" }}>{children}</button>;
 }
 
-function RundenTab({ rounds, destinations, activeDestinations, members, roomCode, name, onCreateRound, onDeleteRound }) {
+function RundenTab({ rounds, destinations, activeDestinations, members, roomCode, name, onCreateRound, onDeleteRound, realtimeTick }) {
   const [mode, setMode] = useState("list"); // list | create | detail
   const [selectedId, setSelectedId] = useState(null);
   useBackClose(mode !== "list", () => { setMode("list"); setSelectedId(null); });
@@ -1050,6 +1072,7 @@ function RundenTab({ rounds, destinations, activeDestinations, members, roomCode
         name={name}
         onBack={() => { setMode("list"); setSelectedId(null); }}
         onDelete={() => { onDeleteRound(round.id); setMode("list"); setSelectedId(null); }}
+        realtimeTick={realtimeTick}
       />
     );
   }
@@ -1142,7 +1165,7 @@ function RoundCreateForm({ activeDestinations, existingCount, onSubmit, onCancel
   );
 }
 
-function RoundDetail({ round, destinations, members, roomCode, name, onBack, onDelete }) {
+function RoundDetail({ round, destinations, members, roomCode, name, onBack, onDelete, realtimeTick }) {
   const status = roundStatus(round);
   const roundDests = destinations.filter((d) => round.destinationIds.includes(d.id));
   const candidateDays = round.candidateDays || [];
@@ -1151,22 +1174,24 @@ function RoundDetail({ round, destinations, members, roomCode, name, onBack, onD
   const [dayVotes, setDayVotes] = useState({});
   const [myDays, setMyDays] = useState([]);
   const [loadingVotes, setLoadingVotes] = useState(status !== "geplant");
+  const initRef = useRef(false);
 
   const loadVotes = useCallback(async () => {
     if (status === "geplant") return;
-    setLoadingVotes(true);
+    if (!initRef.current) setLoadingVotes(true);
     const v = await fetchRoundVotes(roomCode, round.id);
     setVotes(v);
-    setMyDraft(v[name] || {});
     if (candidateDays.length > 0) {
       const dv = await fetchRoundDayVotes(roomCode, round.id);
       setDayVotes(dv);
-      setMyDays(dv[name] || []);
+      if (!initRef.current) setMyDays(dv[name] || []);
     }
+    if (!initRef.current) setMyDraft(v[name] || {});
     setLoadingVotes(false);
+    initRef.current = true;
   }, [roomCode, round.id, name, status]);
 
-  useEffect(() => { loadVotes(); }, [loadVotes]);
+  useEffect(() => { loadVotes(); }, [loadVotes, realtimeTick]);
 
   const saveMyVotes = async (draft) => {
     setMyDraft(draft);
@@ -1613,7 +1638,7 @@ function HelpSection({ title, children }) {
   );
 }
 
-function TermineTab({ termine, activeDestinations, members, roomCode, name, onCreateTermin, onDeleteTermin }) {
+function TermineTab({ termine, activeDestinations, members, roomCode, name, onCreateTermin, onDeleteTermin, realtimeTick }) {
   const [mode, setMode] = useState("list"); // list | create | detail
   const [selectedId, setSelectedId] = useState(null);
   useBackClose(mode !== "list", () => { setMode("list"); setSelectedId(null); });
@@ -1641,6 +1666,7 @@ function TermineTab({ termine, activeDestinations, members, roomCode, name, onCr
         name={name}
         onBack={() => { setMode("list"); setSelectedId(null); }}
         onDelete={() => { onDeleteTermin(termin.id); setMode("list"); }}
+        realtimeTick={realtimeTick}
       />
     );
   }
@@ -1729,7 +1755,7 @@ function TerminCreateForm({ activeDestinations, onCancel, onSubmit }) {
   );
 }
 
-function TerminDetail({ termin, destination, members, roomCode, name, onBack, onDelete }) {
+function TerminDetail({ termin, destination, members, roomCode, name, onBack, onDelete, realtimeTick }) {
   const status = todayStr() > termin.endDate ? "beendet" : "aktiv";
   const [dayVotes, setDayVotes] = useState({});
   const [loading, setLoading] = useState(true);
@@ -1738,19 +1764,23 @@ function TerminDetail({ termin, destination, members, roomCode, name, onBack, on
   const [draftComment, setDraftComment] = useState("");
   const [justSaved, setJustSaved] = useState(false);
   const cat = CATEGORY.find((c) => c.id === destination.category);
+  const initRef = useRef(false);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    if (!initRef.current) setLoading(true);
     const dv = await fetchTerminDayVotes(roomCode, termin.id);
     setDayVotes(dv);
-    const mine = dv[name];
-    setDraftDays((mine && mine.days) || []);
-    setDraftCannotAny(!!(mine && mine.cannotAny));
-    setDraftComment((mine && mine.comment) || "");
+    if (!initRef.current) {
+      const mine = dv[name];
+      setDraftDays((mine && mine.days) || []);
+      setDraftCannotAny(!!(mine && mine.cannotAny));
+      setDraftComment((mine && mine.comment) || "");
+    }
     setLoading(false);
+    initRef.current = true;
   }, [roomCode, termin.id, name]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [load, realtimeTick]);
 
   const mine = dayVotes[name];
   const dirty =
