@@ -27,6 +27,7 @@
   .status.ok { display: block; background: #E4EBE1; color: #3F6B4A; }
   .empty { font-size: 13.5px; color: #8A8A7A; padding: 8px 2px; }
   #content { display: none; }
+  #mainArea { display: none; }
 </style>
 </head>
 <body>
@@ -34,29 +35,38 @@
   <h1>🛠 Admin – Ausflugs-Pool</h1>
   <p class="sub">Nur über diesen direkten Link erreichbar. Änderungen hier sind sofort wirksam und nicht rückgängig zu machen.</p>
 
-  <div class="card">
-    <label style="font-size:12px;font-weight:700;color:#8A8A7A;">FAMILIEN-CODE</label>
-    <input id="roomCodeInput" placeholder="z. B. MEYER26" autocapitalize="characters" />
-    <button class="primary" id="loadBtn">Laden</button>
+  <div id="authGate" class="card">
+    <label style="font-size:12px;font-weight:700;color:#8A8A7A;">ADMIN-PASSWORT</label>
+    <input id="passwordInput" type="password" placeholder="Passwort" autocomplete="off" />
+    <button class="primary" id="unlockBtn">Freischalten</button>
   </div>
+  <div id="authStatus" class="status"></div>
 
-  <div id="status" class="status"></div>
-
-  <div id="content">
-    <h2>Mitglieder</h2>
-    <div id="membersList"></div>
-
-    <h2>Namen zusammenführen</h2>
+  <div id="mainArea">
     <div class="card">
-      <label style="font-size:12px;font-weight:700;color:#8A8A7A;">QUELLE (wird aufgelöst)</label>
-      <select id="mergeSource"></select>
-      <label style="font-size:12px;font-weight:700;color:#8A8A7A;">ZIEL (bleibt bestehen, gewinnt bei Konflikten)</label>
-      <select id="mergeTarget"></select>
-      <button class="primary" id="mergeBtn">Zusammenführen</button>
+      <label style="font-size:12px;font-weight:700;color:#8A8A7A;">FAMILIEN-CODE</label>
+      <input id="roomCodeInput" placeholder="z. B. MEYER26" autocapitalize="characters" />
+      <button class="primary" id="loadBtn">Laden</button>
     </div>
 
-    <h2>Ziele</h2>
-    <div id="destList"></div>
+    <div id="status" class="status"></div>
+
+    <div id="content">
+      <h2>Mitglieder</h2>
+      <div id="membersList"></div>
+
+      <h2>Namen zusammenführen</h2>
+      <div class="card">
+        <label style="font-size:12px;font-weight:700;color:#8A8A7A;">QUELLE (wird aufgelöst)</label>
+        <select id="mergeSource"></select>
+        <label style="font-size:12px;font-weight:700;color:#8A8A7A;">ZIEL (bleibt bestehen, gewinnt bei Konflikten)</label>
+        <select id="mergeTarget"></select>
+        <button class="primary" id="mergeBtn">Zusammenführen</button>
+      </div>
+
+      <h2>Ziele</h2>
+      <div id="destList"></div>
+    </div>
   </div>
 </div>
 
@@ -73,10 +83,50 @@ function boot() {
   var TABLE = "pool_data";
 
   var CATEGORY_LABEL = { draussen: "🌲 Draußen", drinnen: "🏛️ Drinnen" };
+  var AUTH_KEY = "ausflug_admin_ok";
 
   var roomCode = "";
   var members = [];
   var destinations = [];
+
+  function showAuthStatus(message, isError) {
+    var el = document.getElementById("authStatus");
+    el.textContent = message;
+    el.className = "status " + (isError ? "error" : "ok");
+  }
+  function unlock() {
+    document.getElementById("authGate").style.display = "none";
+    document.getElementById("authStatus").className = "status";
+    document.getElementById("mainArea").style.display = "block";
+  }
+  async function tryUnlock() {
+    var pw = document.getElementById("passwordInput").value;
+    if (!pw) return;
+    var btn = document.getElementById("unlockBtn");
+    btn.disabled = true;
+    btn.textContent = "Prüfe …";
+    try {
+      var res = await fetch("/api/admin-auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: pw }),
+      });
+      if (res.ok) {
+        localStorage.setItem(AUTH_KEY, "1");
+        unlock();
+      } else {
+        showAuthStatus("Falsches Passwort.", true);
+      }
+    } catch (e) {
+      showAuthStatus("Fehler bei der Prüfung: " + (e.message || e), true);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Freischalten";
+    }
+  }
+  document.getElementById("unlockBtn").addEventListener("click", tryUnlock);
+  document.getElementById("passwordInput").addEventListener("keydown", function (e) { if (e.key === "Enter") tryUnlock(); });
+  if (localStorage.getItem(AUTH_KEY) === "1") unlock();
 
   function showStatus(message, isError) {
     var el = document.getElementById("status");

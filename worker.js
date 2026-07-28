@@ -12,9 +12,25 @@ export default {
     if (url.pathname === "/api/notify" && request.method === "POST") {
       return handleNotify(request, env);
     }
+    if (url.pathname === "/api/admin-auth" && request.method === "POST") {
+      return handleAdminAuth(request, env);
+    }
     return env.ASSETS.fetch(request);
   },
 };
+
+async function handleAdminAuth(request, env) {
+  let payload;
+  try {
+    payload = await request.json();
+  } catch (e) {
+    return new Response("Bad request", { status: 400 });
+  }
+  if (!env.ADMIN_PASSWORD || payload.password !== env.ADMIN_PASSWORD) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+  return new Response("ok", { status: 200 });
+}
 
 async function handleNotify(request, env) {
   if (request.headers.get("x-webhook-secret") !== env.WEBHOOK_SECRET) {
