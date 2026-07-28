@@ -674,12 +674,12 @@ function ZieleTab({ destinations, onAdd, onRemove, onArchive, onEdit, ratingsByD
   const [geoStatus, setGeoStatus] = useState("idle"); // idle | granted | denied
   const [distances, setDistances] = useState({});
   const [searchQuery, setSearchQuery] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState([]);
-  const [costFilter, setCostFilter] = useState([]);
-  const [durationFilter, setDurationFilter] = useState([]);
+  const [categoryFilter, setCategoryFilter] = useState(null);
+  const [costFilter, setCostFilter] = useState(null);
+  const [durationFilter, setDurationFilter] = useState(null);
   const [sortBy, setSortBy] = useState("none");
   const [showFilters, setShowFilters] = useState(false);
-  const activeFilterCount = categoryFilter.length + costFilter.length + durationFilter.length + (sortBy !== "none" ? 1 : 0);
+  const activeFilterCount = (categoryFilter ? 1 : 0) + (costFilter ? 1 : 0) + (durationFilter ? 1 : 0) + (sortBy !== "none" ? 1 : 0);
 
   useBackClose(showForm, () => setShowForm(false));
   useBackClose(!!openId, () => setOpenId(null));
@@ -731,9 +731,9 @@ function ZieleTab({ destinations, onAdd, onRemove, onArchive, onEdit, ratingsByD
         const haystack = `${d.name} ${d.desc || ""} ${d.location || ""}`.toLowerCase();
         if (!haystack.includes(q)) return false;
       }
-      if (categoryFilter.length && !categoryFilter.includes(d.category)) return false;
-      if (costFilter.length && !costFilter.includes(d.cost)) return false;
-      if (durationFilter.length && !durationFilter.includes(d.duration)) return false;
+      if (categoryFilter && d.category !== categoryFilter) return false;
+      if (costFilter && d.cost !== costFilter) return false;
+      if (durationFilter && d.duration !== durationFilter) return false;
       return true;
     });
     if (sortBy === "alpha_asc") {
@@ -808,8 +808,8 @@ function ZieleTab({ destinations, onAdd, onRemove, onArchive, onEdit, ratingsByD
                 {CATEGORY.map((c) => (
                   <Chip
                     key={c.id}
-                    active={categoryFilter.includes(c.id)}
-                    onClick={() => setCategoryFilter((prev) => prev.includes(c.id) ? prev.filter((x) => x !== c.id) : [...prev, c.id])}
+                    active={categoryFilter === c.id}
+                    onClick={() => setCategoryFilter((prev) => prev === c.id ? null : c.id)}
                   >
                     {c.emoji} {c.label}
                   </Chip>
@@ -819,8 +819,8 @@ function ZieleTab({ destinations, onAdd, onRemove, onArchive, onEdit, ratingsByD
                 {COST.map((c) => (
                   <Chip
                     key={c.id}
-                    active={costFilter.includes(c.id)}
-                    onClick={() => setCostFilter((prev) => prev.includes(c.id) ? prev.filter((x) => x !== c.id) : [...prev, c.id])}
+                    active={costFilter === c.id}
+                    onClick={() => setCostFilter((prev) => prev === c.id ? null : c.id)}
                   >
                     {c.label}
                   </Chip>
@@ -830,8 +830,8 @@ function ZieleTab({ destinations, onAdd, onRemove, onArchive, onEdit, ratingsByD
                 {DURATION.map((d) => (
                   <Chip
                     key={d.id}
-                    active={durationFilter.includes(d.id)}
-                    onClick={() => setDurationFilter((prev) => prev.includes(d.id) ? prev.filter((x) => x !== d.id) : [...prev, d.id])}
+                    active={durationFilter === d.id}
+                    onClick={() => setDurationFilter((prev) => prev === d.id ? null : d.id)}
                   >
                     {d.label}
                   </Chip>
