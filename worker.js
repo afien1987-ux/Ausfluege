@@ -1,9 +1,3 @@
-// Cloudflare Pages Function — erreichbar unter /api/notify
-// Wird von einem Supabase Database Webhook aufgerufen, sobald sich
-// die Tabelle pool_data ändert. Prüft, ob ein NEUES Ziel, eine neue
-// Runde oder eine neue Terminfindung hinzugekommen ist, und verschickt
-// dafür Push-Benachrichtigungen an alle abonnierten Mitglieder desselben Pools.
-
 import { buildPushHTTPRequest } from "@pushforge/builder";
 
 const NOTIFY_KEYS = {
@@ -12,10 +6,17 @@ const NOTIFY_KEYS = {
   termine: { body: () => `Neue Terminfindung wurde angelegt` },
 };
 
-export async function onRequestPost(context) {
-  const { request, env } = context;
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    if (url.pathname === "/api/notify" && request.method === "POST") {
+      return handleNotify(request, env);
+    }
+    return env.ASSETS.fetch(request);
+  },
+};
 
-  // Schutz: nur Aufrufe mit dem richtigen geheimen Header akzeptieren
+async function handleNotify(request, env) {
   if (request.headers.get("x-webhook-secret") !== env.WEBHOOK_SECRET) {
     return new Response("Unauthorized", { status: 401 });
   }

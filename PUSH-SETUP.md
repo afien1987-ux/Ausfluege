@@ -1,42 +1,41 @@
-# Push-Benachrichtigungen einrichten
+# Push-Benachrichtigungen einrichten (Cloudflare Workers)
 
 Diese Datei beschreibt die einmalige Einrichtung. Ohne diese Schritte erscheint
 zwar der "🔔 Benachrichtigungen aktivieren"-Button in der App, aber es werden
-keine Nachrichten verschickt (der Server-Teil fehlt dann noch).
+keine Nachrichten verschickt.
 
 ## Was dazugekommen ist
 
-- `sw.js` – Service Worker, empfängt und zeigt Push-Nachrichten im Browser
-- `functions/api/notify.js` – Cloudflare-Funktion, die die Nachrichten verschickt
+- `worker.js` – ein einzelner Worker, der sowohl die Seite ausliefert als auch
+  unter `/api/notify` die eigentlichen Push-Nachrichten verschickt
+- `wrangler.jsonc` – Konfigurationsdatei, die Cloudflare sagt, wie der Worker
+  aufgebaut ist (nötig, weil dein Projekt als "Workers"-Projekt läuft, nicht
+  als klassisches "Pages"-Projekt)
+- `.assetsignore` – sorgt dafür, dass Config-Dateien nicht versehentlich als
+  Webseite ausgeliefert werden
+- `sw.js` – Service Worker im Browser, zeigt die Benachrichtigung an
 - `package.json` – nötig, damit Cloudflare die Versand-Bibliothek installiert
 - In der App: 🔔-Menüpunkt zum Aktivieren/Deaktivieren
 
-## 1. Cloudflare: Build-Command setzen
+## 1. Cloudflare: Build-Command (schon erledigt)
 
-Bisher war der Build-Command leer (kein Build nötig). Das ändert sich jetzt,
-weil die Funktion eine Bibliothek braucht:
-
-1. Cloudflare-Dashboard → dein Projekt → **Settings → Builds & deployments**
-2. **Build command** auf `npm install` setzen
-3. Speichern, dann einmal neu deployen (z. B. kleine Änderung committen)
+Build command: `npm install` — hast du schon eingestellt, bleibt so.
 
 ## 2. Cloudflare: Umgebungsvariablen setzen
 
-Cloudflare-Dashboard → dein Projekt → **Settings → Environment variables** →
-folgende **vier** Variablen hinzufügen (Production und Preview):
+Cloudflare-Dashboard → dein Projekt → **Settings → Variables and secrets** →
+folgende **vier** Variablen hinzufügen:
 
 | Name | Wert |
 |---|---|
 | `VAPID_PRIVATE_KEY` | `{"kty":"EC","crv":"P-256","x":"16O3ydRIsqclGVd_u-cKfW36FNiGONeEX_EoDLJAwBI","y":"KuCl45qAUDtfmBk6y_igzEbERzryJeUDk2OqNyVhhCs","d":"KElsT_0uuqYwYs6UYFL7t4QyZg-qd1Nk87Btkpq3Lto"}` |
 | `SUPABASE_URL` | `https://esfmotvtrkucoewovaep.supabase.co` |
 | `SUPABASE_SERVICE_ROLE_KEY` | dein **service_role**-Schlüssel aus Supabase → Project Settings → API (NICHT der publishable/anon-Key!) |
-| `WEBHOOK_SECRET` | ein selbst ausgedachtes, langes Zufalls-Passwort, z. B. 32 zufällige Zeichen |
+| `WEBHOOK_SECRET` | ein selbst ausgedachtes, langes Zufalls-Passwort |
 
-⚠️ **Wichtig:** `VAPID_PRIVATE_KEY` und `SUPABASE_SERVICE_ROLE_KEY` sind echte
-Geheimnisse. Sie dürfen NUR hier als Umgebungsvariable stehen, niemals in der
-`index.html` oder im Git-Repo.
+⚠️ Diese Werte niemals im Code/Repo speichern, nur hier als Variable.
 
-Nach dem Speichern der Variablen: einmal neu deployen, damit sie wirksam werden.
+Nach dem Speichern: einmal neu deployen (z. B. kleinen Commit hochladen).
 
 ## 3. Supabase: Database Webhook einrichten
 
@@ -44,24 +43,21 @@ Nach dem Speichern der Variablen: einmal neu deployen, damit sie wirksam werden.
 2. **Table:** `pool_data`
 3. **Events:** ✅ Insert, ✅ Update
 4. **Type:** HTTP Request
-5. **URL:** `https://DEINE-CLOUDFLARE-URL/api/notify` (deine echte Pages-URL einsetzen)
-6. **HTTP Headers:** einen Header hinzufügen:
-   - Name: `x-webhook-secret`
-   - Wert: derselbe Wert wie `WEBHOOK_SECRET` aus Schritt 2
+5. **URL:** `https://DEINE-CLOUDFLARE-URL/api/notify`
+6. **HTTP Headers:** `x-webhook-secret` → derselbe Wert wie `WEBHOOK_SECRET`
 7. Speichern
 
 ## 4. Testen
 
-1. In der App: ☰-Menü → **🔔 Benachrichtigungen** → aktivieren (Standort-/Benachrichtigungs-Erlaubnis bestätigen)
-2. Ein neues Ziel, eine neue Runde oder eine neue Terminfindung anlegen
+1. ☰-Menü → **🔔 Benachrichtigungen** → aktivieren
+2. Neues Ziel/Runde/Termin anlegen
 3. Benachrichtigung sollte innerhalb weniger Sekunden ankommen
 
-**iPhone-Hinweis:** Push funktioniert nur, wenn die App zuvor über "Zum
-Startbildschirm hinzufügen" installiert und von dort geöffnet wurde (iOS 16.4+).
-Im normalen Safari-Tab geht das auf iOS grundsätzlich nicht.
+**iPhone:** nur nach "Zum Startbildschirm hinzufügen" (iOS 16.4+), nicht im normalen Safari-Tab.
 
 ## Fehlersuche
 
-- Kommt nichts an? Cloudflare-Dashboard → **Functions** → Logs des `/api/notify`-Aufrufs prüfen
-- Supabase-Dashboard → **Database → Webhooks** → Verlauf zeigt, ob der Webhook überhaupt ausgelöst und mit welchem Status er beantwortet wurde
-- 401-Fehler → `x-webhook-secret`-Header und `WEBHOOK_SECRET`-Variable stimmen nicht überein
+- Cloudflare-Dashboard → **Deployments** → Build-Log prüfen, ob `wrangler deploy` jetzt durchläuft
+- **Observability/Logs** im Worker zeigt Fehler beim Ausführen von `/api/notify`
+- Supabase → **Database → Webhooks** → Verlauf zeigt, ob der Webhook ausgelöst wurde und mit welchem Status
+- 401 → `x-webhook-secret` und `WEBHOOK_SECRET` stimmen nicht überein
