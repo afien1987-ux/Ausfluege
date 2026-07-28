@@ -1044,7 +1044,7 @@ function DestDetail({ d, ratings, onRate, onArchive, onRemove, onEdit, onBack, n
 
       <div style={S.cardFooter}>
         <span />
-        <button style={S.visitedBtn} onClick={() => { onArchive(d.id); onBack(); }}>✓ Waren dort</button>
+        <button style={S.visitedBtn} onClick={() => { if (window.confirm(`"${d.name}" ins Archiv verschieben?`)) { onArchive(d.id); onBack(); } }}>✓ Waren dort</button>
       </div>
     </div>
   );
@@ -2028,7 +2028,7 @@ function TerminDetail({ termin, destination, members, roomCode, name, onBack, on
             </>
           )}
 
-          <button style={S.dangerBtn} onClick={onDelete}>Terminfindung löschen</button>
+          <button style={S.dangerBtn} onClick={() => { if (window.confirm(`Terminfindung für "${destination.name}" wirklich löschen?`)) onDelete(); }}>Terminfindung löschen</button>
         </>
       )}
 
