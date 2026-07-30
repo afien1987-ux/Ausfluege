@@ -1425,7 +1425,7 @@ function RoundDetail({ round, destinations, members, roomCode, name, onBack, onD
       });
     });
     const arr = roundDests.map((d) => ({ ...d, points: sums[d.id] || 0 }));
-    arr.sort((a, b) => b.points - a.points);
+    arr.sort((a, b) => a.points - b.points);
     let rank = 0, lastPoints = null;
     return arr.map((d, i) => {
       if (d.points !== lastPoints) { rank = i + 1; lastPoints = d.points; }
@@ -1550,7 +1550,7 @@ function VotingBlock({ destinations, myVotes, onSave }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={S.voteHint}>Vergib Punkte von 1 bis {n} — dein wichtigstes Ziel bekommt {n}, jede Zahl nur einmal.</div>
+      <div style={S.voteHint}>Vergib Punkte von 1 bis {n} — dein wichtigstes Ziel bekommt die 1, jede Zahl nur einmal. Wenige Punkte insgesamt = hohe Priorität.</div>
       {destinations.map((d) => {
         const current = draft[d.id] ?? "";
         return (
@@ -1572,7 +1572,8 @@ function VotingBlock({ destinations, myVotes, onSave }) {
 
 function RankingList({ ranking }) {
   if (ranking.length === 0) return <div style={S.emptyState}><p>Noch keine Stimmen abgegeben.</p></div>;
-  const maxPoints = Math.max(...ranking.map((r) => r.points), 1);
+  const minPoints = Math.min(...ranking.map((r) => r.points));
+  const maxPoints = Math.max(...ranking.map((r) => r.points), minPoints + 1);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {ranking.map((d) => (
@@ -1580,7 +1581,7 @@ function RankingList({ ranking }) {
           <div style={S.rankBadge}>{d.rank}</div>
           <div style={{ flex: 1 }}>
             <div style={S.rankName}>{d.name}</div>
-            <div style={S.rankBarTrack}><div style={{ ...S.rankBarFill, width: `${Math.max(6, (d.points / maxPoints) * 100)}%` }} /></div>
+            <div style={S.rankBarTrack}><div style={{ ...S.rankBarFill, width: `${Math.max(6, ((maxPoints - d.points) / (maxPoints - minPoints)) * 100)}%` }} /></div>
           </div>
           <div style={S.rankPoints}>{d.points}</div>
         </div>
@@ -1812,7 +1813,7 @@ function HilfeTab() {
         <div style={S.helpStatusRow}><span style={{ ...S.statusBadge, background: STATUS_COLOR.geplant + "22", color: STATUS_COLOR.geplant }}>Geplant</span><span style={S.helpText}>Startdatum in der Zukunft – Vorschau sichtbar, noch kein Abstimmen.</span></div>
         <div style={S.helpStatusRow}><span style={{ ...S.statusBadge, background: STATUS_COLOR.aktiv + "22", color: STATUS_COLOR.aktiv }}>Aktiv</span><span style={S.helpText}>Abstimmen möglich, Zwischenstand live sichtbar.</span></div>
         <div style={S.helpStatusRow}><span style={{ ...S.statusBadge, background: STATUS_COLOR.beendet + "22", color: STATUS_COLOR.beendet }}>Beendet</span><span style={S.helpText}>Enddatum vorbei – Abstimmen gesperrt, Ergebnis bleibt dauerhaft sichtbar.</span></div>
-        <p style={S.helpText}>Beim Abstimmen: Punkte 1 bis N vergeben (N = Anzahl Ziele), jede Zahl nur einmal, wichtigstes Ziel bekommt die höchste Zahl.</p>
+        <p style={S.helpText}>Beim Abstimmen: Punkte 1 bis N vergeben (N = Anzahl Ziele), jede Zahl nur einmal, wichtigstes Ziel bekommt die 1. Je weniger Punkte ein Ziel insgesamt sammelt, desto höher seine Priorität im Ergebnis.</p>
         <p style={S.helpText}><b>Terminumfrage (optional):</b> Beim Erstellen könnt ihr zusätzlich konkrete Tage vorschlagen. Während die Runde aktiv ist, kreuzt jeder an, an welchen Tagen es passt – der Terminstand zeigt, welcher Tag die meiste Zustimmung hat.</p>
       </HelpSection>
 
