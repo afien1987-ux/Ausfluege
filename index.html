@@ -1217,13 +1217,20 @@ function RundenTab({ rounds, destinations, activeDestinations, members, roomCode
       {sorted.map((r) => {
         const status = roundStatus(r);
         return (
-          <button key={r.id} style={S.roundCard} onClick={() => { setSelectedId(r.id); setMode("detail"); }}>
+          <div key={r.id} style={S.roundCard} role="button" tabIndex={0} onClick={() => { setSelectedId(r.id); setMode("detail"); }}>
             <div style={S.roundCardTop}>
               <span style={S.roundAlias}>{r.alias}</span>
-              <span style={{ ...S.statusBadge, background: STATUS_COLOR[status] + "22", color: STATUS_COLOR[status] }}>{STATUS_LABEL[status]}</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ ...S.statusBadge, background: STATUS_COLOR[status] + "22", color: STATUS_COLOR[status] }}>{STATUS_LABEL[status]}</span>
+                <button
+                  style={S.closeBtn}
+                  title="Runde löschen"
+                  onClick={(e) => { e.stopPropagation(); if (window.confirm(`Runde "${r.alias}" wirklich löschen?`)) onDeleteRound(r.id); }}
+                >✕</button>
+              </div>
             </div>
             <div style={S.roundDates}>{formatDate(r.startDate)} – {formatDate(r.endDate)} · {r.destinationIds.length} Ziele</div>
-          </button>
+          </div>
         );
       })}
     </div>
