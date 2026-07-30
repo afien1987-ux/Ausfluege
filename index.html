@@ -1548,10 +1548,21 @@ function VotingBlock({ destinations, myVotes, onSave }) {
     setDraft(next);
   };
 
+  const orderedDestinations = useMemo(() => {
+    const unrated = [];
+    const rated = [];
+    destinations.forEach((d) => {
+      const val = draft[d.id];
+      if (val === undefined || val === "") unrated.push(d); else rated.push(d);
+    });
+    rated.sort((a, b) => draft[a.id] - draft[b.id]);
+    return [...unrated, ...rated];
+  }, [destinations, draft]);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <div style={S.voteHint}>Vergib Punkte von 1 bis {n} — dein wichtigstes Ziel bekommt die 1, jede Zahl nur einmal. Wenige Punkte insgesamt = hohe Priorität.</div>
-      {destinations.map((d) => {
+      {orderedDestinations.map((d) => {
         const current = draft[d.id] ?? "";
         return (
           <div key={d.id} style={S.voteRow}>
