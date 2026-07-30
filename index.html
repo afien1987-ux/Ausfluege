@@ -1382,6 +1382,7 @@ function RoundDetail({ round, destinations, members, roomCode, name, onBack, onD
   const [myDays, setMyDays] = useState([]);
   const [loadingVotes, setLoadingVotes] = useState(status !== "geplant");
   const initRef = useRef(false);
+  const draftKey = `draftvotes:${round.id}:${name}`;
 
   const loadVotes = useCallback(async () => {
     if (status === "geplant") return;
@@ -1393,12 +1394,24 @@ function RoundDetail({ round, destinations, members, roomCode, name, onBack, onD
       setDayVotes(dv);
       if (!initRef.current) setMyDays(dv[name] || []);
     }
-    if (!initRef.current) setMyDraft(v[name] || {});
+    if (!initRef.current) {
+      if (v[name]) {
+        setMyDraft(v[name]);
+      } else {
+        const savedDraft = await dbGet(roomCode, draftKey);
+        setMyDraft(savedDraft || {});
+      }
+    }
     setLoadingVotes(false);
     initRef.current = true;
   }, [roomCode, round.id, name, status]);
 
   useEffect(() => { loadVotes(); }, [loadVotes, realtimeTick]);
+
+  const saveDraft = async (draft) => {
+    setMyDraft(draft);
+    await dbSet(roomCode, draftKey, draft);
+  };
 
   const saveMyVotes = async (draft) => {
     setMyDraft(draft);
@@ -1479,7 +1492,7 @@ function RoundDetail({ round, destinations, members, roomCode, name, onBack, onD
       {status === "aktiv" && !loadingVotes && (
         <>
           <div style={S.sectionLabel}>Ziele bewerten</div>
-          <VotingBlock destinations={roundDests} myVotes={myDraft} onSave={saveMyVotes} />
+          <VotingBlock destinations={roundDests} myVotes={myDraft} onSave={saveMyVotes} onDraftChange={saveDraft} />
 
           {candidateDays.length > 0 && (
             <>
@@ -1533,10 +1546,13 @@ function RoundDetail({ round, destinations, members, roomCode, name, onBack, onD
   );
 }
 
-function VotingBlock({ destinations, myVotes, onSave }) {
+function VotingBlock({ destinations, myVotes, onSave, onDraftChange }) {
   const n = destinations.length;
   const [draft, setDraft] = useState({});
-  useEffect(() => { setDraft(myVotes || {}); }, [myVotes, destinations.length]);
+  const initRef = useRef(false);
+  useEffect(() => {
+    if (!initRef.current) { setDraft(myVotes || {}); initRef.current = true; }
+  }, [myVotes, destinations.length]);
 
   const usedPoints = new Set(Object.values(draft).filter((v) => v !== undefined && v !== ""));
   const allNumbers = Array.from({ length: n }, (_, i) => i + 1);
@@ -1546,6 +1562,7 @@ function VotingBlock({ destinations, myVotes, onSave }) {
     const next = { ...draft };
     if (val === "") delete next[destId]; else next[destId] = Number(val);
     setDraft(next);
+    onDraftChange && onDraftChange(next);
   };
 
   const orderedDestinations = useMemo(() => {
