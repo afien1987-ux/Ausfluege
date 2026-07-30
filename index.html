@@ -1240,6 +1240,7 @@ function RundenTab({ rounds, destinations, activeDestinations, members, roomCode
 
 function RoundCreateForm({ activeDestinations, existingCount, onSubmit, onCancel }) {
   const [alias, setAlias] = useState(`Runde ${existingCount + 1}`);
+  const [desc, setDesc] = useState("");
   const [startDate, setStartDate] = useState(todayStr());
   const [endDate, setEndDate] = useState(plusDays(todayStr(), 7));
   const [selectedIds, setSelectedIds] = useState([]);
@@ -1278,6 +1279,9 @@ function RoundCreateForm({ activeDestinations, existingCount, onSubmit, onCancel
     <div style={S.formCard}>
       <label style={S.label}>Alias / Name der Runde</label>
       <input style={S.input} value={alias} maxLength={40} onChange={(e) => setAlias(e.target.value)} placeholder="z. B. Sommerferien 2026" />
+
+      <label style={S.label}>Beschreibung (optional)</label>
+      <textarea style={{ ...S.input, minHeight: 56, resize: "vertical" }} placeholder="Kurze Beschreibung, worum es in dieser Runde geht" value={desc} maxLength={400} onChange={(e) => setDesc(e.target.value)} />
 
       <label style={S.label}>Startet am</label>
       <input style={S.input} type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
@@ -1359,7 +1363,7 @@ function RoundCreateForm({ activeDestinations, existingCount, onSubmit, onCancel
         <button
           style={{ ...S.primaryBtn, flex: 1, opacity: valid ? 1 : 0.45 }}
           disabled={!valid}
-          onClick={() => onSubmit({ alias: alias.trim(), startDate, endDate, destinationIds: selectedIds, candidateDays })}
+          onClick={() => onSubmit({ alias: alias.trim(), desc: desc.trim().slice(0, 400), startDate, endDate, destinationIds: selectedIds, candidateDays })}
         >
           Runde erstellen
         </button>
@@ -1452,6 +1456,7 @@ function RoundDetail({ round, destinations, members, roomCode, name, onBack, onD
           <span style={{ ...S.statusBadge, background: STATUS_COLOR[status] + "22", color: STATUS_COLOR[status] }}>{STATUS_LABEL[status]}</span>
         </div>
         <div style={S.roundDates}>{formatDate(round.startDate)} – {formatDate(round.endDate)}</div>
+        {round.desc && <p style={S.detailDesc}>{round.desc}</p>}
       </div>
 
       {status === "geplant" && (
