@@ -1244,6 +1244,12 @@ function RoundCreateForm({ activeDestinations, existingCount, onSubmit, onCancel
   const [endDate, setEndDate] = useState(plusDays(todayStr(), 7));
   const [selectedIds, setSelectedIds] = useState([]);
   const [candidateDays, setCandidateDays] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState(null);
+  const [costFilter, setCostFilter] = useState(null);
+  const [durationFilter, setDurationFilter] = useState(null);
+  const [showFilters, setShowFilters] = useState(false);
+  const activeFilterCount = (categoryFilter ? 1 : 0) + (costFilter ? 1 : 0) + (durationFilter ? 1 : 0);
 
   const toggle = (id) => {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -1251,6 +1257,20 @@ function RoundCreateForm({ activeDestinations, existingCount, onSubmit, onCancel
   const addDay = () => setCandidateDays([...candidateDays, startDate]);
   const updateDay = (i, val) => setCandidateDays(candidateDays.map((d, idx) => (idx === i ? val : d)));
   const removeDay = (i) => setCandidateDays(candidateDays.filter((_, idx) => idx !== i));
+
+  const visibleDestinations = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return activeDestinations.filter((d) => {
+      if (q) {
+        const haystack = `${d.name} ${d.desc || ""} ${d.location || ""}`.toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      if (categoryFilter && d.category !== categoryFilter) return false;
+      if (costFilter && d.cost !== costFilter) return false;
+      if (durationFilter && d.duration !== durationFilter) return false;
+      return true;
+    });
+  }, [activeDestinations, searchQuery, categoryFilter, costFilter, durationFilter]);
 
   const valid = alias.trim() && startDate && endDate && endDate >= startDate && selectedIds.length >= 2;
 
@@ -1268,8 +1288,54 @@ function RoundCreateForm({ activeDestinations, existingCount, onSubmit, onCancel
 
       <label style={S.label}>Ziele in dieser Runde ({selectedIds.length} ausgewählt)</label>
       {activeDestinations.length === 0 && <p style={S.hint}>Noch keine Ziele im Pool – erst im Tab "Ziele" welche anlegen.</p>}
+      {activeDestinations.length > 0 && (
+        <>
+          <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+            <input
+              style={{ ...S.input, flex: 1, marginBottom: 0 }}
+              placeholder="Suche nach Name, Beschreibung oder Ort…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            <button
+              style={{ ...S.secondaryBtn, whiteSpace: "nowrap", opacity: activeFilterCount > 0 ? 1 : 0.7 }}
+              onClick={() => setShowFilters((v) => !v)}
+            >
+              Filter{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""} {showFilters ? "▲" : "▼"}
+            </button>
+          </div>
+          {showFilters && (
+            <>
+              <div style={S.formRow}>
+                {CATEGORY.map((c) => (
+                  <Chip key={c.id} active={categoryFilter === c.id} onClick={() => setCategoryFilter((prev) => prev === c.id ? null : c.id)}>
+                    {c.emoji} {c.label}
+                  </Chip>
+                ))}
+              </div>
+              <div style={S.formRow}>
+                {COST.map((c) => (
+                  <Chip key={c.id} active={costFilter === c.id} onClick={() => setCostFilter((prev) => prev === c.id ? null : c.id)}>
+                    {c.label}
+                  </Chip>
+                ))}
+              </div>
+              <div style={S.formRow}>
+                {DURATION.map((d) => (
+                  <Chip key={d.id} active={durationFilter === d.id} onClick={() => setDurationFilter((prev) => prev === d.id ? null : d.id)}>
+                    {d.label}
+                  </Chip>
+                ))}
+              </div>
+            </>
+          )}
+        </>
+      )}
       <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
-        {activeDestinations.map((d) => (
+        {activeDestinations.length > 0 && visibleDestinations.length === 0 && (
+          <div style={S.emptyState}><span style={{ fontSize: 26 }}>🔍</span><p>Keine Ziele gefunden. Suche oder Filter anpassen.</p></div>
+        )}
+        {visibleDestinations.map((d) => (
           <label key={d.id} style={S.checkRow}>
             <input type="checkbox" checked={selectedIds.includes(d.id)} onChange={() => toggle(d.id)} />
             <span>{d.name}</span>
