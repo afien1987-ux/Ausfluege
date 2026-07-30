@@ -704,6 +704,7 @@ function ZieleTab({ destinations, onAdd, onRemove, onArchive, onEdit, ratingsByD
           coords = { lat: d.lat, lon: d.lon };
         } else {
           coords = await geocodeAddress(d.location);
+          if (coords && onEdit) onEdit(d.id, { lat: coords.lat, lon: coords.lon });
           await new Promise((r) => setTimeout(r, 1100));
         }
         if (cancelled) return;
