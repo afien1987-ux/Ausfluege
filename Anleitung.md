@@ -61,7 +61,29 @@ Wichtig: Die App prüft den Status anhand des aktuellen Datums, wenn jemand die 
 
 ---
 
-## 4. Tab "Archiv"
+## 4. Tab "Termine" – nur noch den Tag klären
+
+Steht das Ziel schon fest und ihr wollt nur noch wissen, an welchem Tag es klappt? Dafür gibt's die **Terminfindung**, unabhängig von den Punkte-Runden.
+
+### Neue Terminfindung erstellen
+1. **"+ Neue Terminfindung"**
+2. Ein bestehendes **Ziel** auswählen
+3. **"Offen bis"**-Datum festlegen
+4. Mindestens 2 **Terminvorschläge** (konkrete Tage) hinzufügen
+
+### Abstimmen
+- Jeder kreuzt an, an welchen Tagen es passt (oder markiert "Keiner der Termine passt mir", optional mit Kommentar)
+- Der **Terminstand** zeigt live, welcher Tag die meiste Zustimmung hat
+- Nach dem "Offen bis"-Datum ist die Terminfindung beendet, das Ergebnis bleibt sichtbar
+
+### Termin festlegen & in den Kalender übernehmen
+- Bei jedem Terminvorschlag gibt es **"Festlegen"** – setzt diesen Tag als endgültigen Termin, jederzeit möglich (auch schon während noch abgestimmt wird)
+- Ist ein Termin festgelegt, erscheint oben eine Karte mit dem Datum und dem Button **"📆 In Kalender übernehmen"** – lädt eine `.ics`-Datei mit Ziel, Datum und Ort herunter, die sich direkt in der Kalender-App öffnen/importieren lässt
+- **"Festlegung aufheben"** macht die Wahl rückgängig, falls sich doch noch was ändert
+
+---
+
+## 5. Tab "Archiv"
 
 Ziele, die ihr über "✓ Waren dort" archiviert habt, landen hier – zusammen mit der Punktzahl aus der letzten beendeten Runde, in der sie dabei waren (falls vorhanden).
 
@@ -69,7 +91,7 @@ Ziele, die ihr über "✓ Waren dort" archiviert habt, landen hier – zusammen 
 
 ---
 
-## 5. Mehrere Pools nutzen
+## 6. Mehrere Pools nutzen
 
 Ihr könnt beliebig viele unabhängige Pools führen – einfach einen anderen Familien-Code verwenden (z. B. einen für Tagesausflüge, einen für den Sommerurlaub).
 

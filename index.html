@@ -158,6 +158,47 @@ function formatDate(dateStr) {
     return dateStr;
   }
 }
+// --- Kalender-Export (.ics) für einen festgelegten Termin ---
+function icsEscape(str) {
+  return String(str || "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
+}
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+function buildTerminIcs(termin, destination) {
+  const dtStart = termin.finalDay.replace(/-/g, "");
+  const dtEnd = plusDays(termin.finalDay, 1).replace(/-/g, "");
+  const now = new Date();
+  const stamp = `${now.getUTCFullYear()}${pad2(now.getUTCMonth() + 1)}${pad2(now.getUTCDate())}T${pad2(now.getUTCHours())}${pad2(now.getUTCMinutes())}${pad2(now.getUTCSeconds())}Z`;
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Ausflugs-Pool//DE",
+    "CALSCALE:GREGORIAN",
+    "BEGIN:VEVENT",
+    `UID:${termin.id}@ausflugs-pool`,
+    `DTSTAMP:${stamp}`,
+    `DTSTART;VALUE=DATE:${dtStart}`,
+    `DTEND;VALUE=DATE:${dtEnd}`,
+    `SUMMARY:${icsEscape(destination.name)}`,
+  ];
+  if (destination.location) lines.push(`LOCATION:${icsEscape(destination.location)}`);
+  if (destination.desc) lines.push(`DESCRIPTION:${icsEscape(destination.desc)}`);
+  lines.push("END:VEVENT", "END:VCALENDAR");
+  return lines.join("\r\n");
+}
+function downloadIcs(filename, content) {
+  const blob = new Blob([content], { type: "text/calendar;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function roundStatus(round) {
   const t = todayStr();
   if (t < round.startDate) return "geplant";
@@ -539,6 +580,10 @@ function App() {
     const next = termine.filter((t) => t.id !== id);
     await saveTermine(next);
   };
+  const finalizeTermin = async (id, day) => {
+    const next = termine.map((t) => (t.id === id ? { ...t, finalDay: day } : t));
+    await saveTermine(next);
+  };
 
   if (loadingProfile) return <div style={S.loadingScreen}>Lädt …</div>;
   if (!joined) return <JoinScreen roomCode={roomCode} setRoomCode={setRoomCode} name={name} setName={setName} onJoin={handleJoin} recentProfiles={recentProfiles} onQuickJoin={quickJoin} />;
@@ -577,6 +622,7 @@ function App() {
                 name={name}
                 onCreateTermin={createTermin}
                 onDeleteTermin={deleteTermin}
+                onFinalizeTermin={finalizeTermin}
                 realtimeTick={realtimeTick}
               />
             )}
@@ -1967,6 +2013,7 @@ function HilfeTab() {
       <HelpSection title="📅 Termine">
         <p style={S.helpText}>Steht das Ziel schon fest und ihr wollt nur noch den Tag klären? "+ Neue Terminfindung": ein bestehendes Ziel auswählen, "Offen bis"-Datum setzen, mindestens 2 Terminvorschläge hinzufügen.</p>
         <p style={S.helpText}>Jeder kreuzt an, an welchen Tagen es passt – der Terminstand zeigt live, welcher Tag die meiste Zustimmung hat. Nach dem "Offen bis"-Datum ist die Terminfindung beendet, das Ergebnis bleibt sichtbar.</p>
+        <p style={S.helpText}><b>"Festlegen":</b> Bei jedem Terminvorschlag setzt du damit den endgültigen Tag – jederzeit möglich, unabhängig vom Abstimmungsstand. "📆 In Kalender übernehmen" erzeugt danach eine .ics-Datei mit Ziel, Datum und Ort zum Import in deine Kalender-App.</p>
       </HelpSection>
 
       <HelpSection title="🗂️ Archiv">
@@ -1995,7 +2042,7 @@ function HelpSection({ title, children }) {
   );
 }
 
-function TermineTab({ termine, activeDestinations, members, roomCode, name, onCreateTermin, onDeleteTermin, realtimeTick }) {
+function TermineTab({ termine, activeDestinations, members, roomCode, name, onCreateTermin, onDeleteTermin, onFinalizeTermin, realtimeTick }) {
   const [mode, setMode] = useState("list"); // list | create | detail
   const [selectedId, setSelectedId] = useState(null);
   useBackClose(mode !== "list", () => { setMode("list"); setSelectedId(null); });
@@ -2023,6 +2070,7 @@ function TermineTab({ termine, activeDestinations, members, roomCode, name, onCr
         name={name}
         onBack={() => { setMode("list"); setSelectedId(null); }}
         onDelete={() => { onDeleteTermin(termin.id); setMode("list"); }}
+        onFinalize={(day) => onFinalizeTermin(termin.id, day)}
         realtimeTick={realtimeTick}
       />
     );
@@ -2045,7 +2093,9 @@ function TermineTab({ termine, activeDestinations, members, roomCode, name, onCr
               <span style={S.roundAlias}>{dest ? dest.name : "(gelöschtes Ziel)"}</span>
               <span style={{ ...S.statusBadge, background: STATUS_COLOR[status] + "22", color: STATUS_COLOR[status] }}>{STATUS_LABEL[status]}</span>
             </div>
-            <div style={S.roundDates}>Offen bis {formatDate(t.endDate)} · {t.candidateDays.length} Terminvorschläge</div>
+            <div style={S.roundDates}>
+              {t.finalDay ? `📌 Termin: ${formatDate(t.finalDay)}` : `Offen bis ${formatDate(t.endDate)} · ${t.candidateDays.length} Terminvorschläge`}
+            </div>
           </button>
         );
       })}
@@ -2112,7 +2162,7 @@ function TerminCreateForm({ activeDestinations, onCancel, onSubmit }) {
   );
 }
 
-function TerminDetail({ termin, destination, members, roomCode, name, onBack, onDelete, realtimeTick }) {
+function TerminDetail({ termin, destination, members, roomCode, name, onBack, onDelete, onFinalize, realtimeTick }) {
   const status = todayStr() > termin.endDate ? "beendet" : "aktiv";
   const [dayVotes, setDayVotes] = useState({});
   const [loading, setLoading] = useState(true);
@@ -2197,6 +2247,19 @@ function TerminDetail({ termin, destination, members, roomCode, name, onBack, on
         <div style={S.roundDates}>Offen bis {formatDate(termin.endDate)}</div>
       </div>
 
+      {termin.finalDay && (
+        <div style={S.finalTerminCard}>
+          <div style={S.finalTerminLabel}>📌 Termin festgelegt</div>
+          <div style={S.finalTerminDate}>{formatDate(termin.finalDay)}</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button style={S.primaryBtn} onClick={() => downloadIcs(`${destination.name}.ics`, buildTerminIcs(termin, destination))}>
+              📆 In Kalender übernehmen
+            </button>
+            <button style={S.secondaryBtn} onClick={() => onFinalize(null)}>Festlegung aufheben</button>
+          </div>
+        </div>
+      )}
+
       {loading && <div style={S.voteHint}>Lädt Stimmen …</div>}
 
       {!loading && status === "aktiv" && (
@@ -2241,6 +2304,11 @@ function TerminDetail({ termin, destination, members, roomCode, name, onBack, on
                 <div style={S.rankBarTrack}><div style={{ ...S.rankBarFill, width: `${Math.max(6, (dc.count / maxCount) * 100)}%` }} /></div>
               </div>
               <div style={S.rankPoints}>{dc.count}</div>
+              {termin.finalDay === dc.day ? (
+                <span style={S.finalizedBadge}>✓ fest</span>
+              ) : (
+                <button style={S.finalizeBtn} onClick={() => onFinalize(dc.day)}>Festlegen</button>
+              )}
             </div>
           ))}
 
@@ -2268,6 +2336,11 @@ function TerminDetail({ termin, destination, members, roomCode, name, onBack, on
               <div style={S.rankBadge}>{dc.rank}</div>
               <div style={{ flex: 1 }}><div style={S.rankName}>{formatDate(dc.day)}</div></div>
               <div style={S.rankPoints}>{dc.count}</div>
+              {termin.finalDay === dc.day ? (
+                <span style={S.finalizedBadge}>✓ fest</span>
+              ) : (
+                <button style={S.finalizeBtn} onClick={() => onFinalize(dc.day)}>Festlegen</button>
+              )}
             </div>
           ))}
           {cannotAnyMembers.length > 0 && (
@@ -2383,6 +2456,11 @@ const S = {
   personVoteRow: { display: "flex", alignItems: "baseline", gap: 8 },
   personVoteRank: { fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, fontSize: 12.5, color: "#C97A3D", minWidth: 16 },
   personVoteDest: { fontSize: 14, color: "#223022" },
+  finalTerminCard: { background: "#E4EBE1", border: "1.5px solid #3F6B4A", borderRadius: 14, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 },
+  finalTerminLabel: { fontSize: 11, fontWeight: 700, color: "#3F6B4A", textTransform: "uppercase", letterSpacing: 0.6 },
+  finalTerminDate: { fontFamily: "'Big Shoulders Display', sans-serif", fontWeight: 800, fontSize: 22, color: "#223022" },
+  finalizeBtn: { fontSize: 11, fontWeight: 600, color: "#3F6B4A", background: "#E4EBE1", border: "none", borderRadius: 8, padding: "5px 8px", cursor: "pointer", whiteSpace: "nowrap" },
+  finalizedBadge: { fontSize: 11, fontWeight: 700, color: "#3F6B4A", whiteSpace: "nowrap" },
   archiveInfo: { fontSize: 11.5, color: "#8A8A7A", marginTop: 6, fontStyle: "italic" },
   recentBtn: { display: "flex", alignItems: "center", gap: 2, width: "100%", padding: "10px 12px", borderRadius: 10, border: "1.5px solid #D8D5C6", background: "#FFFFFF", color: "#223022", fontSize: 13.5, cursor: "pointer" },
   orDivider: { fontSize: 11, color: "#B9B6A6", textAlign: "center", margin: "12px 0 -4px" },
