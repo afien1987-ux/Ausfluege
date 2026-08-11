@@ -284,6 +284,17 @@ function useBackClose(active, onBack) {
   }, [active]);
 }
 
+const VALID_TABS = ["ziele", "runden", "termine", "archiv"];
+function tabFromUrl(url) {
+  try {
+    const search = url ? url.split("?")[1] || "" : window.location.search;
+    const t = new URLSearchParams(search).get("tab");
+    return VALID_TABS.includes(t) ? t : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 function useTabNav(initialTab) {
   const [tab, setTabState] = useState(initialTab);
   const goTo = useCallback((newTab) => {
@@ -301,9 +312,34 @@ function App() {
   const [roomCode, setRoomCode] = useState("");
   const [name, setName] = useState("");
   const [joined, setJoined] = useState(false);
-  const [tab, setTab] = useTabNav("ziele");
+  const [tab, setTab] = useTabNav(tabFromUrl() || "ziele");
   const [menuOpen, setMenuOpen] = useState(false);
   useBackClose(menuOpen, () => setMenuOpen(false));
+
+  // Nach dem Start mit ?tab=... (aus einem Push-Klick) die Adresse wieder
+  // säubern, damit ein Neuladen nicht erneut auf den Tab springt.
+  useEffect(() => {
+    if (tabFromUrl()) {
+      window.history.replaceState(window.history.state, "", window.location.pathname);
+    }
+  }, []);
+
+  // Ist die App schon offen und ein Push wird angeklickt, schickt der
+  // Service Worker statt eines Neuladens nur eine Nachricht mit dem Ziel-Tab.
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const onMessage = (event) => {
+      const msg = event.data;
+      if (!msg || msg.type !== "navigate") return;
+      const t = tabFromUrl(msg.url);
+      if (t) {
+        setMenuOpen(false);
+        setTab(t);
+      }
+    };
+    navigator.serviceWorker.addEventListener("message", onMessage);
+    return () => navigator.serviceWorker.removeEventListener("message", onMessage);
+  }, [setTab]);
   const [destinations, setDestinations] = useState([]);
   const [members, setMembers] = useState([]);
   const [rounds, setRounds] = useState([]);

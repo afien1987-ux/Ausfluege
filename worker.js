@@ -1,9 +1,9 @@
 import { buildPushHTTPRequest } from "@pushforge/builder";
 
 const NOTIFY_KEYS = {
-  destinations: { body: (item) => `Neues Ziel vorgeschlagen: ${item.name}` },
-  rounds: { body: (item) => `Neue Runde gestartet: ${item.alias}` },
-  termine: { body: () => `Neue Terminfindung wurde angelegt` },
+  destinations: { body: (item) => `Neues Ziel vorgeschlagen: ${item.name}`, tab: "ziele" },
+  rounds: { body: (item) => `Neue Runde gestartet: ${item.alias}`, tab: "runden" },
+  termine: { body: () => `Neue Terminfindung wurde angelegt`, tab: "termine" },
 };
 
 export default {
@@ -75,7 +75,7 @@ async function handleNotify(request, env) {
     if (subs.length === 0) return new Response("no subscribers", { status: 200 });
 
     for (const item of added) {
-      await sendToAll(env, privateJWK, subs, "Ausflugs-Pool", NOTIFY_KEYS[dataKey].body(item));
+      await sendToAll(env, privateJWK, subs, "Ausflugs-Pool", NOTIFY_KEYS[dataKey].body(item), NOTIFY_KEYS[dataKey].tab);
     }
     return new Response("ok", { status: 200 });
   }
@@ -88,7 +88,7 @@ async function handleNotify(request, env) {
     if (!round) return new Response("round not found", { status: 200 });
     const subs = (await fetchSubscriptions(env, roomCode)).filter((s) => s.name !== voterName);
     if (subs.length === 0) return new Response("no subscribers", { status: 200 });
-    await sendToAll(env, privateJWK, subs, "Ausflugs-Pool", `${voterName} hat bei "${round.alias}" abgestimmt`);
+    await sendToAll(env, privateJWK, subs, "Ausflugs-Pool", `${voterName} hat bei "${round.alias}" abgestimmt`, "runden");
     return new Response("ok", { status: 200 });
   }
 
@@ -100,7 +100,7 @@ async function handleNotify(request, env) {
     if (!round) return new Response("round not found", { status: 200 });
     const subs = (await fetchSubscriptions(env, roomCode)).filter((s) => s.name !== voterName);
     if (subs.length === 0) return new Response("no subscribers", { status: 200 });
-    await sendToAll(env, privateJWK, subs, "Ausflugs-Pool", `${voterName} hat bei "${round.alias}" die Terminumfrage beantwortet`);
+    await sendToAll(env, privateJWK, subs, "Ausflugs-Pool", `${voterName} hat bei "${round.alias}" die Terminumfrage beantwortet`, "runden");
     return new Response("ok", { status: 200 });
   }
 
@@ -114,21 +114,22 @@ async function handleNotify(request, env) {
     const destName = dest ? dest.name : "eurem Ziel";
     const subs = (await fetchSubscriptions(env, roomCode)).filter((s) => s.name !== voterName);
     if (subs.length === 0) return new Response("no subscribers", { status: 200 });
-    await sendToAll(env, privateJWK, subs, "Ausflugs-Pool", `${voterName} hat bei der Terminfindung für "${destName}" geantwortet`);
+    await sendToAll(env, privateJWK, subs, "Ausflugs-Pool", `${voterName} hat bei der Terminfindung für "${destName}" geantwortet`, "termine");
     return new Response("ok", { status: 200 });
   }
 
   return new Response("ignored (not a notifiable key)", { status: 200 });
 }
 
-async function sendToAll(env, privateJWK, subs, title, body) {
+async function sendToAll(env, privateJWK, subs, title, body, tab) {
+  const url = tab ? `/?tab=${encodeURIComponent(tab)}` : "/";
   for (const { name, subscription, roomCode } of subs) {
     try {
       const { endpoint, headers, body: reqBody } = await buildPushHTTPRequest({
         privateJWK,
         subscription,
         message: {
-          payload: { title, body },
+          payload: { title, body, url },
           adminContact: env.VAPID_CONTACT || "mailto:example@example.com",
         },
       });

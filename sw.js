@@ -19,7 +19,12 @@ self.addEventListener("notificationclick", (event) => {
   event.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
-        if ("focus" in client) return client.focus();
+        if ("focus" in client) {
+          // App ist schon offen: nicht neu laden, sondern per Nachricht zum
+          // richtigen Tab springen lassen.
+          client.postMessage({ type: "navigate", url });
+          return client.focus();
+        }
       }
       if (clients.openWindow) return clients.openWindow(url);
     })
