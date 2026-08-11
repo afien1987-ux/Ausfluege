@@ -198,6 +198,18 @@ function downloadIcs(filename, content) {
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+function buildGoogleCalendarUrl(termin, destination) {
+  const dtStart = termin.finalDay.replace(/-/g, "");
+  const dtEnd = plusDays(termin.finalDay, 1).replace(/-/g, "");
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: destination.name,
+    dates: `${dtStart}/${dtEnd}`,
+  });
+  if (destination.desc) params.set("details", destination.desc);
+  if (destination.location) params.set("location", destination.location);
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
 
 function roundStatus(round) {
   const t = todayStr();
@@ -2013,7 +2025,7 @@ function HilfeTab() {
       <HelpSection title="📅 Termine">
         <p style={S.helpText}>Steht das Ziel schon fest und ihr wollt nur noch den Tag klären? "+ Neue Terminfindung": ein bestehendes Ziel auswählen, "Offen bis"-Datum setzen, mindestens 2 Terminvorschläge hinzufügen.</p>
         <p style={S.helpText}>Jeder kreuzt an, an welchen Tagen es passt – der Terminstand zeigt live, welcher Tag die meiste Zustimmung hat. Nach dem "Offen bis"-Datum ist die Terminfindung beendet, das Ergebnis bleibt sichtbar.</p>
-        <p style={S.helpText}><b>"Festlegen":</b> Bei jedem Terminvorschlag setzt du damit den endgültigen Tag – jederzeit möglich, unabhängig vom Abstimmungsstand. "📆 In Kalender übernehmen" erzeugt danach eine .ics-Datei mit Ziel, Datum und Ort zum Import in deine Kalender-App.</p>
+        <p style={S.helpText}><b>"Festlegen":</b> Bei jedem Terminvorschlag setzt du damit den endgültigen Tag – jederzeit möglich, unabhängig vom Abstimmungsstand. "📆 Zu Google Kalender hinzufügen" öffnet Google Kalender mit vorausgefülltem Termin (Ziel, Datum, Ort); alternativ "Als .ics" für Apple Kalender/Outlook.</p>
       </HelpSection>
 
       <HelpSection title="🗂️ Archiv">
@@ -2252,8 +2264,11 @@ function TerminDetail({ termin, destination, members, roomCode, name, onBack, on
           <div style={S.finalTerminLabel}>📌 Termin festgelegt</div>
           <div style={S.finalTerminDate}>{formatDate(termin.finalDay)}</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button style={S.primaryBtn} onClick={() => downloadIcs(`${destination.name}.ics`, buildTerminIcs(termin, destination))}>
-              📆 In Kalender übernehmen
+            <a style={{ ...S.primaryBtn, textDecoration: "none", textAlign: "center" }} href={buildGoogleCalendarUrl(termin, destination)} target="_blank" rel="noopener noreferrer">
+              📆 Zu Google Kalender hinzufügen
+            </a>
+            <button style={S.secondaryBtn} onClick={() => downloadIcs(`${destination.name}.ics`, buildTerminIcs(termin, destination))}>
+              ⬇️ Als .ics (Apple/Outlook)
             </button>
             <button style={S.secondaryBtn} onClick={() => onFinalize(null)}>Festlegung aufheben</button>
           </div>

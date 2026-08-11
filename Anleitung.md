@@ -78,7 +78,7 @@ Steht das Ziel schon fest und ihr wollt nur noch wissen, an welchem Tag es klapp
 
 ### Termin festlegen & in den Kalender übernehmen
 - Bei jedem Terminvorschlag gibt es **"Festlegen"** – setzt diesen Tag als endgültigen Termin, jederzeit möglich (auch schon während noch abgestimmt wird)
-- Ist ein Termin festgelegt, erscheint oben eine Karte mit dem Datum und dem Button **"📆 In Kalender übernehmen"** – lädt eine `.ics`-Datei mit Ziel, Datum und Ort herunter, die sich direkt in der Kalender-App öffnen/importieren lässt
+- Ist ein Termin festgelegt, erscheint oben eine Karte mit dem Datum und **"📆 Zu Google Kalender hinzufügen"** – öffnet Google Kalender mit bereits ausgefülltem Termin (Ziel, Datum, Ort) zum direkten Speichern. Alternativ **"Als .ics"** für Apple Kalender/Outlook
 - **"Festlegung aufheben"** macht die Wahl rückgängig, falls sich doch noch was ändert
 
 ---
