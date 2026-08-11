@@ -46,14 +46,16 @@ Eine **Runde** ist eine konkrete Abstimmung über eine Auswahl an Zielen, mit fe
 |---|---|
 | 🔘 **Geplant** | Startdatum liegt noch in der Zukunft. Ihr seht schon, welche Ziele zur Wahl stehen, könnt aber noch nicht abstimmen. |
 | 🟢 **Aktiv** | Abstimmen ist möglich, solange das Enddatum noch nicht erreicht ist. |
-| 🔵 **Beendet** | Enddatum ist vorbei. Abstimmen ist gesperrt, das Ergebnis bleibt aber dauerhaft sichtbar. |
+| 🔵 **Beendet** | Enddatum ist vorbei. Abstimmen ist gesperrt, das Ergebnis bleibt aber dauerhaft für alle sichtbar. |
 
 ### Abstimmen (bei aktiver Runde)
 - Punkte von **1 bis N** vergeben (N = Anzahl der Ziele in dieser Runde)
-- Euer wichtigstes Ziel bekommt die höchste Zahl
+- Euer wichtigstes Ziel bekommt die niedrigste Zahl (die **1**) – wenige Punkte insgesamt = hohe Priorität
 - Jede Zahl darf nur einmal vergeben werden
-- Erst wenn alle Ziele eine Zahl haben, lässt sich die Bewertung speichern
-- Ihr seht direkt darunter den **Zwischenstand** sowie, wer aus der Familie noch nicht abgestimmt hat
+- Euer Stand wird automatisch zwischengespeichert und bleibt beliebig änderbar
+- Erst mit **"Abstimmung final abschicken"** (inkl. Bestätigung) zählt eure Stimme mit – danach ist sie gesperrt und nicht mehr änderbar
+- Den **Zwischenstand** sowie, wer final abgestimmt hat, seht ihr erst, nachdem ihr selbst final abgeschickt habt (oder sobald die Runde beendet ist) – so kann niemand seine Punkte noch taktisch an den Stand der anderen anpassen
+- Haben alle final abgestimmt, könnt ihr per Umschalter zusätzlich **"Einzelstimmen"** einsehen: wer hat welches Ziel wie priorisiert
 
 Wichtig: Die App prüft den Status anhand des aktuellen Datums, wenn jemand die Seite öffnet. Es braucht keinen Knopfdruck – aber jemand muss die App an dem Tag mal öffnen, damit sich z. B. der Zwischenstand aktualisiert.
 

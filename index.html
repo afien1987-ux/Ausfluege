@@ -1496,6 +1496,8 @@ function RoundDetail({ round, destinations, members, roomCode, name, onBack, onD
   const completedVoters = members.filter((m) => votes[m] && Object.keys(votes[m]).length === roundDests.length);
   const pendingVoters = members.filter((m) => !completedVoters.includes(m));
   const allVoted = members.length > 0 && pendingVoters.length === 0;
+  // Final abgeschickt = kein taktisches Anpassen mehr nach Blick aufs Ergebnis möglich.
+  const finalized = !!votes[name];
 
   return (
     <div style={S.tabContent}>
@@ -1530,7 +1532,7 @@ function RoundDetail({ round, destinations, members, roomCode, name, onBack, onD
       {status === "aktiv" && !loadingVotes && (
         <>
           <div style={S.sectionLabel}>Ziele bewerten</div>
-          <VotingBlock destinations={roundDests} myVotes={myDraft} onSave={saveMyVotes} onDraftChange={saveDraft} />
+          <VotingBlock destinations={roundDests} myVotes={myDraft} finalized={finalized} onSave={saveMyVotes} onDraftChange={saveDraft} />
 
           {candidateDays.length > 0 && (
             <>
@@ -1556,9 +1558,18 @@ function RoundDetail({ round, destinations, members, roomCode, name, onBack, onD
             </>
           )}
 
-          <div style={S.sectionLabel}>Zwischenstand Ziele (live)</div>
-          {pendingVoters.length > 0 && <div style={S.pendingBanner}>Noch offen: {pendingVoters.join(", ")}</div>}
-          <RoundResults allVoted={allVoted} voteView={voteView} setVoteView={setVoteView} ranking={ranking} votes={votes} members={members} roundDests={roundDests} />
+          <div style={S.sectionLabel}>Zwischenstand Ziele</div>
+          {finalized ? (
+            <>
+              {pendingVoters.length > 0 && <div style={S.pendingBanner}>Noch offen: {pendingVoters.join(", ")}</div>}
+              <RoundResults allVoted={allVoted} voteView={voteView} setVoteView={setVoteView} ranking={ranking} votes={votes} members={members} roundDests={roundDests} />
+            </>
+          ) : (
+            <div style={S.voteHint}>
+              Das Ergebnis wird sichtbar, sobald du deine Abstimmung final abgeschickt hast (oder die Runde endet) – so kann niemand taktisch nachjustieren.
+              {members.length > 0 && ` Bisher haben ${completedVoters.length} von ${members.length} final abgestimmt.`}
+            </div>
+          )}
         </>
       )}
 
@@ -1584,7 +1595,7 @@ function RoundDetail({ round, destinations, members, roomCode, name, onBack, onD
   );
 }
 
-function VotingBlock({ destinations, myVotes, onSave, onDraftChange }) {
+function VotingBlock({ destinations, myVotes, finalized, onSave, onDraftChange }) {
   const n = destinations.length;
   const [draft, setDraft] = useState({});
   const initRef = useRef(false);
@@ -1614,9 +1625,35 @@ function VotingBlock({ destinations, myVotes, onSave, onDraftChange }) {
     return [...unrated, ...rated];
   }, [destinations, draft]);
 
+  const handleFinalize = () => {
+    if (!completed) return;
+    if (!window.confirm("Abstimmung final abschicken? Danach kannst du sie nicht mehr ändern.")) return;
+    onSave(draft);
+  };
+
+  if (finalized) {
+    const ranked = destinations
+      .map((d) => ({ ...d, points: (myVotes || {})[d.id] }))
+      .filter((d) => d.points !== undefined)
+      .sort((a, b) => a.points - b.points);
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={S.voteHint}>✅ Deine Abstimmung ist final abgeschickt und kann nicht mehr geändert werden.</div>
+        <div style={S.personVoteCard}>
+          {ranked.map((d, i) => (
+            <div key={d.id} style={S.personVoteRow}>
+              <span style={S.personVoteRank}>{i + 1}.</span>
+              <span style={S.personVoteDest}>{d.name}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={S.voteHint}>Vergib Punkte von 1 bis {n} — dein wichtigstes Ziel bekommt die 1, jede Zahl nur einmal. Wenige Punkte insgesamt = hohe Priorität.</div>
+      <div style={S.voteHint}>Vergib Punkte von 1 bis {n} — dein wichtigstes Ziel bekommt die 1, jede Zahl nur einmal. Wenige Punkte insgesamt = hohe Priorität. Dein Stand wird automatisch zwischengespeichert; das Ergebnis siehst du erst nach dem finalen Abschicken.</div>
       {orderedDestinations.map((d) => {
         const current = draft[d.id] ?? "";
         return (
@@ -1629,8 +1666,8 @@ function VotingBlock({ destinations, myVotes, onSave, onDraftChange }) {
           </div>
         );
       })}
-      <button style={{ ...S.primaryBtn, opacity: completed ? 1 : 0.45 }} disabled={!completed} onClick={() => onSave(draft)}>
-        {completed ? "Bewertung speichern" : `Noch ${n - Object.keys(draft).length} Ziel(e) offen`}
+      <button style={{ ...S.primaryBtn, opacity: completed ? 1 : 0.45 }} disabled={!completed} onClick={handleFinalize}>
+        {completed ? "Abstimmung final abschicken" : `Noch ${n - Object.keys(draft).length} Ziel(e) offen`}
       </button>
     </div>
   );
@@ -1921,9 +1958,9 @@ function HilfeTab() {
       <HelpSection title="🗳️ Runden">
         <p style={S.helpText}>Eine Runde ist eine Abstimmung über ausgewählte Ziele mit festem Start- und Enddatum. "+ Neue Runde erstellen": Alias, Start-/Enddatum, mindestens 2 Ziele auswählen.</p>
         <div style={S.helpStatusRow}><span style={{ ...S.statusBadge, background: STATUS_COLOR.geplant + "22", color: STATUS_COLOR.geplant }}>Geplant</span><span style={S.helpText}>Startdatum in der Zukunft – Vorschau sichtbar, noch kein Abstimmen.</span></div>
-        <div style={S.helpStatusRow}><span style={{ ...S.statusBadge, background: STATUS_COLOR.aktiv + "22", color: STATUS_COLOR.aktiv }}>Aktiv</span><span style={S.helpText}>Abstimmen möglich, Zwischenstand live sichtbar.</span></div>
-        <div style={S.helpStatusRow}><span style={{ ...S.statusBadge, background: STATUS_COLOR.beendet + "22", color: STATUS_COLOR.beendet }}>Beendet</span><span style={S.helpText}>Enddatum vorbei – Abstimmen gesperrt, Ergebnis bleibt dauerhaft sichtbar.</span></div>
-        <p style={S.helpText}>Beim Abstimmen: Punkte 1 bis N vergeben (N = Anzahl Ziele), jede Zahl nur einmal, wichtigstes Ziel bekommt die 1. Je weniger Punkte ein Ziel insgesamt sammelt, desto höher seine Priorität im Ergebnis.</p>
+        <div style={S.helpStatusRow}><span style={{ ...S.statusBadge, background: STATUS_COLOR.aktiv + "22", color: STATUS_COLOR.aktiv }}>Aktiv</span><span style={S.helpText}>Abstimmen möglich, Zwischenstand aber erst sichtbar, sobald du selbst final abgestimmt hast.</span></div>
+        <div style={S.helpStatusRow}><span style={{ ...S.statusBadge, background: STATUS_COLOR.beendet + "22", color: STATUS_COLOR.beendet }}>Beendet</span><span style={S.helpText}>Enddatum vorbei – Abstimmen gesperrt, Ergebnis für alle dauerhaft sichtbar.</span></div>
+        <p style={S.helpText}>Beim Abstimmen: Punkte 1 bis N vergeben (N = Anzahl Ziele), jede Zahl nur einmal, wichtigstes Ziel bekommt die 1. Je weniger Punkte ein Ziel insgesamt sammelt, desto höher seine Priorität im Ergebnis. Dein Stand wird automatisch zwischengespeichert und bleibt änderbar, bis du ihn <b>final abschickst</b> – erst danach siehst du das Ergebnis (kein taktisches Nachjustieren mehr möglich) und deine Stimme ist gesperrt.</p>
         <p style={S.helpText}><b>Terminumfrage (optional):</b> Beim Erstellen könnt ihr zusätzlich konkrete Tage vorschlagen. Während die Runde aktiv ist, kreuzt jeder an, an welchen Tagen es passt – der Terminstand zeigt, welcher Tag die meiste Zustimmung hat.</p>
       </HelpSection>
 
