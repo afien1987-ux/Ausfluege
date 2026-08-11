@@ -56,6 +56,7 @@ Eine **Runde** ist eine konkrete Abstimmung über eine Auswahl an Zielen, mit fe
 - Erst mit **"Abstimmung final abschicken"** (inkl. Bestätigung) zählt eure Stimme mit – danach ist sie gesperrt und nicht mehr änderbar
 - Den **Zwischenstand** sowie, wer final abgestimmt hat, seht ihr erst, nachdem ihr selbst final abgeschickt habt (oder sobald die Runde beendet ist) – so kann niemand seine Punkte noch taktisch an den Stand der anderen anpassen
 - Haben alle final abgestimmt, könnt ihr per Umschalter zusätzlich **"Einzelstimmen"** einsehen: wer hat welches Ziel wie priorisiert
+- Sobald das Ergebnis sichtbar ist, startet **"📅 Termin"** neben jedem Ziel direkt eine neue Terminfindung (Tab "Termine") mit diesem Ziel schon ausgewählt – erspart die erneute Auswahl
 
 Wichtig: Die App prüft den Status anhand des aktuellen Datums, wenn jemand die Seite öffnet. Es braucht keinen Knopfdruck – aber jemand muss die App an dem Tag mal öffnen, damit sich z. B. der Zwischenstand aktualisiert.
 

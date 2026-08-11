@@ -285,6 +285,13 @@ function isValidUrl(str) {
 // sie wirklich geschlossen wird.
 const navStack = [];
 let bypassExitConfirm = false;
+// Zählt History-Einträge, die wir selbst per popNavProgrammatic zurückgenommen
+// haben (z. B. weil ein Formular per Speichern/Abbrechen statt per Zurück-Taste
+// geschlossen wurde). Das dadurch ausgelöste popstate-Event darf dann nicht
+// nochmal als "Nutzer hat zurück gedrückt" behandelt werden – sonst hält die
+// App das für ein Verlassen der App und fragt fälschlich nach, ob man
+// wirklich schließen möchte.
+let suppressPopstateCount = 0;
 
 function pushNav(onBack) {
   const id = Math.random().toString(36).slice(2);
@@ -296,6 +303,7 @@ function popNavProgrammatic(id) {
   const topIdx = navStack.length - 1;
   if (topIdx >= 0 && navStack[topIdx].id === id) {
     navStack.pop();
+    suppressPopstateCount++;
     window.history.back();
   } else {
     const idx = navStack.findIndex((e) => e.id === id);
@@ -305,6 +313,10 @@ function popNavProgrammatic(id) {
 
 window.history.pushState({ guard: true }, "");
 window.addEventListener("popstate", () => {
+  if (suppressPopstateCount > 0) {
+    suppressPopstateCount--;
+    return;
+  }
   if (navStack.length > 0) {
     const top = navStack.pop();
     top.onBack();
@@ -397,6 +409,7 @@ function App() {
   const [members, setMembers] = useState([]);
   const [rounds, setRounds] = useState([]);
   const [termine, setTermine] = useState([]);
+  const [terminPrefillDestId, setTerminPrefillDestId] = useState(null);
   const [ratingsByDest, setRatingsByDest] = useState({});
   const [busy, setBusy] = useState(false);
   const [recentProfiles, setRecentProfiles] = useState([]);
@@ -596,6 +609,10 @@ function App() {
     const next = termine.map((t) => (t.id === id ? { ...t, finalDay: day } : t));
     await saveTermine(next);
   };
+  const startTerminForDestination = (destId) => {
+    setTerminPrefillDestId(destId);
+    setTab("termine");
+  };
 
   if (loadingProfile) return <div style={S.loadingScreen}>Lädt …</div>;
   if (!joined) return <JoinScreen roomCode={roomCode} setRoomCode={setRoomCode} name={name} setName={setName} onJoin={handleJoin} recentProfiles={recentProfiles} onQuickJoin={quickJoin} />;
@@ -622,6 +639,7 @@ function App() {
                 name={name}
                 onCreateRound={createRound}
                 onDeleteRound={deleteRound}
+                onCreateTerminForDestination={startTerminForDestination}
                 realtimeTick={realtimeTick}
               />
             )}
@@ -635,6 +653,8 @@ function App() {
                 onCreateTermin={createTermin}
                 onDeleteTermin={deleteTermin}
                 onFinalizeTermin={finalizeTermin}
+                prefillDestinationId={terminPrefillDestId}
+                onConsumePrefill={() => setTerminPrefillDestId(null)}
                 realtimeTick={realtimeTick}
               />
             )}
@@ -1268,7 +1288,7 @@ function Chip({ active, onClick, children }) {
   return <button onClick={onClick} style={{ ...S.chip, background: active ? "#3F6B4A" : "#EFEDE3", color: active ? "#F7F4EC" : "#4A4A3E" }}>{children}</button>;
 }
 
-function RundenTab({ rounds, destinations, activeDestinations, members, roomCode, name, onCreateRound, onDeleteRound, realtimeTick }) {
+function RundenTab({ rounds, destinations, activeDestinations, members, roomCode, name, onCreateRound, onDeleteRound, onCreateTerminForDestination, realtimeTick }) {
   const [mode, setMode] = useState("list"); // list | create | detail
   const [selectedId, setSelectedId] = useState(null);
   useBackClose(mode !== "list", () => { setMode("list"); setSelectedId(null); });
@@ -1296,6 +1316,7 @@ function RundenTab({ rounds, destinations, activeDestinations, members, roomCode
         name={name}
         onBack={() => { setMode("list"); setSelectedId(null); }}
         onDelete={() => { onDeleteRound(round.id); setMode("list"); setSelectedId(null); }}
+        onCreateTermin={onCreateTerminForDestination}
         realtimeTick={realtimeTick}
       />
     );
@@ -1466,7 +1487,7 @@ function RoundCreateForm({ activeDestinations, existingCount, onSubmit, onCancel
   );
 }
 
-function RoundDetail({ round, destinations, members, roomCode, name, onBack, onDelete, realtimeTick }) {
+function RoundDetail({ round, destinations, members, roomCode, name, onBack, onDelete, onCreateTermin, realtimeTick }) {
   const status = roundStatus(round);
   const roundDests = destinations.filter((d) => round.destinationIds.includes(d.id));
   const candidateDays = round.candidateDays || [];
@@ -1620,7 +1641,7 @@ function RoundDetail({ round, destinations, members, roomCode, name, onBack, onD
           {finalized ? (
             <>
               {pendingVoters.length > 0 && <div style={S.pendingBanner}>Noch offen: {pendingVoters.join(", ")}</div>}
-              <RoundResults allVoted={allVoted} voteView={voteView} setVoteView={setVoteView} ranking={ranking} votes={votes} members={members} roundDests={roundDests} />
+              <RoundResults allVoted={allVoted} voteView={voteView} setVoteView={setVoteView} ranking={ranking} votes={votes} members={members} roundDests={roundDests} onCreateTermin={onCreateTermin} />
             </>
           ) : (
             <div style={S.voteHint}>
@@ -1634,7 +1655,7 @@ function RoundDetail({ round, destinations, members, roomCode, name, onBack, onD
       {status === "beendet" && !loadingVotes && (
         <>
           <div style={S.sectionLabel}>Ergebnis</div>
-          <RoundResults allVoted={allVoted} voteView={voteView} setVoteView={setVoteView} ranking={ranking} votes={votes} members={members} roundDests={roundDests} />
+          <RoundResults allVoted={allVoted} voteView={voteView} setVoteView={setVoteView} ranking={ranking} votes={votes} members={members} roundDests={roundDests} onCreateTermin={onCreateTermin} />
           {candidateDays.length > 0 && (
             <>
               <div style={S.sectionLabel}>Gewählter Termin</div>
@@ -1731,7 +1752,7 @@ function VotingBlock({ destinations, myVotes, finalized, onSave, onDraftChange }
   );
 }
 
-function RoundResults({ allVoted, voteView, setVoteView, ranking, votes, members, roundDests }) {
+function RoundResults({ allVoted, voteView, setVoteView, ranking, votes, members, roundDests, onCreateTermin }) {
   return (
     <>
       {allVoted && (
@@ -1743,7 +1764,7 @@ function RoundResults({ allVoted, voteView, setVoteView, ranking, votes, members
       {allVoted && voteView === "einzeln" ? (
         <VotesByPerson members={members} votes={votes} roundDests={roundDests} />
       ) : (
-        <RankingList ranking={ranking} />
+        <RankingList ranking={ranking} onCreateTermin={onCreateTermin} />
       )}
     </>
   );
@@ -1775,7 +1796,7 @@ function VotesByPerson({ members, votes, roundDests }) {
   );
 }
 
-function RankingList({ ranking }) {
+function RankingList({ ranking, onCreateTermin }) {
   if (ranking.length === 0) return <div style={S.emptyState}><p>Noch keine Stimmen abgegeben.</p></div>;
   const minPoints = Math.min(...ranking.map((r) => r.points));
   const maxPoints = Math.max(...ranking.map((r) => r.points), minPoints + 1);
@@ -1789,6 +1810,9 @@ function RankingList({ ranking }) {
             <div style={S.rankBarTrack}><div style={{ ...S.rankBarFill, width: `${Math.max(6, ((maxPoints - d.points) / (maxPoints - minPoints)) * 100)}%` }} /></div>
           </div>
           <div style={S.rankPoints}>{d.points}</div>
+          {onCreateTermin && (
+            <button style={S.finalizeBtn} title="Terminfindung für dieses Ziel erstellen" onClick={() => onCreateTermin(d.id)}>📅 Termin</button>
+          )}
         </div>
       ))}
     </div>
@@ -2020,6 +2044,7 @@ function HilfeTab() {
         <div style={S.helpStatusRow}><span style={{ ...S.statusBadge, background: STATUS_COLOR.beendet + "22", color: STATUS_COLOR.beendet }}>Beendet</span><span style={S.helpText}>Enddatum vorbei – Abstimmen gesperrt, Ergebnis für alle dauerhaft sichtbar.</span></div>
         <p style={S.helpText}>Beim Abstimmen: Punkte 1 bis N vergeben (N = Anzahl Ziele), jede Zahl nur einmal, wichtigstes Ziel bekommt die 1. Je weniger Punkte ein Ziel insgesamt sammelt, desto höher seine Priorität im Ergebnis. Dein Stand wird automatisch zwischengespeichert und bleibt änderbar, bis du ihn <b>final abschickst</b> – erst danach siehst du das Ergebnis (kein taktisches Nachjustieren mehr möglich) und deine Stimme ist gesperrt.</p>
         <p style={S.helpText}><b>Terminumfrage (optional):</b> Beim Erstellen könnt ihr zusätzlich konkrete Tage vorschlagen. Während die Runde aktiv ist, kreuzt jeder an, an welchen Tagen es passt – der Terminstand zeigt, welcher Tag die meiste Zustimmung hat.</p>
+        <p style={S.helpText}>Sobald das Ergebnis sichtbar ist, hat jedes Ziel in der Liste einen "📅 Termin"-Button – startet direkt eine neue Terminfindung (Tab "Termine") mit diesem Ziel bereits ausgewählt.</p>
       </HelpSection>
 
       <HelpSection title="📅 Termine">
@@ -2054,15 +2079,23 @@ function HelpSection({ title, children }) {
   );
 }
 
-function TermineTab({ termine, activeDestinations, members, roomCode, name, onCreateTermin, onDeleteTermin, onFinalizeTermin, realtimeTick }) {
-  const [mode, setMode] = useState("list"); // list | create | detail
+function TermineTab({ termine, activeDestinations, members, roomCode, name, onCreateTermin, onDeleteTermin, onFinalizeTermin, prefillDestinationId, onConsumePrefill, realtimeTick }) {
+  const [mode, setMode] = useState(prefillDestinationId ? "create" : "list"); // list | create | detail
   const [selectedId, setSelectedId] = useState(null);
+  const [createDestId] = useState(prefillDestinationId || null);
   useBackClose(mode !== "list", () => { setMode("list"); setSelectedId(null); });
+
+  // Übernommene Auswahl direkt beim ersten Render verbrauchen, damit ein
+  // späterer, normaler Besuch des Tabs wieder bei der Liste startet.
+  useEffect(() => {
+    if (prefillDestinationId && onConsumePrefill) onConsumePrefill();
+  }, []);
 
   if (mode === "create") {
     return (
       <TerminCreateForm
         activeDestinations={activeDestinations}
+        initialDestinationId={createDestId}
         onCancel={() => setMode("list")}
         onSubmit={(data) => { onCreateTermin(data); setMode("list"); }}
       />
@@ -2115,8 +2148,12 @@ function TermineTab({ termine, activeDestinations, members, roomCode, name, onCr
   );
 }
 
-function TerminCreateForm({ activeDestinations, onCancel, onSubmit }) {
-  const [destinationId, setDestinationId] = useState(activeDestinations[0]?.id || "");
+function TerminCreateForm({ activeDestinations, initialDestinationId, onCancel, onSubmit }) {
+  const [destinationId, setDestinationId] = useState(
+    initialDestinationId && activeDestinations.some((d) => d.id === initialDestinationId)
+      ? initialDestinationId
+      : activeDestinations[0]?.id || ""
+  );
   const [endDate, setEndDate] = useState(plusDays(todayStr(), 7));
   const [candidateDays, setCandidateDays] = useState([]);
 
