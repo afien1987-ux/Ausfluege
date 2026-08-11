@@ -199,12 +199,14 @@ function downloadIcs(filename, content) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 function buildGoogleCalendarUrl(termin, destination) {
+  // Start und Ende gleich lassen (nicht Ende = Start+1): in der mobilen
+  // Google-Kalender-App führt ein exklusives Enddatum sonst dazu, dass der
+  // Termin einen Tag zu früh endet (bzw. als ungültig markiert wird).
   const dtStart = termin.finalDay.replace(/-/g, "");
-  const dtEnd = plusDays(termin.finalDay, 1).replace(/-/g, "");
   const params = new URLSearchParams({
     action: "TEMPLATE",
     text: destination.name,
-    dates: `${dtStart}/${dtEnd}`,
+    dates: `${dtStart}/${dtStart}`,
   });
   if (destination.desc) params.set("details", destination.desc);
   if (destination.location) params.set("location", destination.location);
