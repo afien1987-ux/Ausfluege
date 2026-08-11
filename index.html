@@ -1417,6 +1417,7 @@ function RoundDetail({ round, destinations, members, roomCode, name, onBack, onD
   const [dayVotes, setDayVotes] = useState({});
   const [myDays, setMyDays] = useState([]);
   const [loadingVotes, setLoadingVotes] = useState(status !== "geplant");
+  const [voteView, setVoteView] = useState("gesamt");
   const initRef = useRef(false);
   const draftKey = `draftvotes:${round.id}:${name}`;
 
@@ -1494,6 +1495,7 @@ function RoundDetail({ round, destinations, members, roomCode, name, onBack, onD
 
   const completedVoters = members.filter((m) => votes[m] && Object.keys(votes[m]).length === roundDests.length);
   const pendingVoters = members.filter((m) => !completedVoters.includes(m));
+  const allVoted = members.length > 0 && pendingVoters.length === 0;
 
   return (
     <div style={S.tabContent}>
@@ -1556,14 +1558,14 @@ function RoundDetail({ round, destinations, members, roomCode, name, onBack, onD
 
           <div style={S.sectionLabel}>Zwischenstand Ziele (live)</div>
           {pendingVoters.length > 0 && <div style={S.pendingBanner}>Noch offen: {pendingVoters.join(", ")}</div>}
-          <RankingList ranking={ranking} />
+          <RoundResults allVoted={allVoted} voteView={voteView} setVoteView={setVoteView} ranking={ranking} votes={votes} members={members} roundDests={roundDests} />
         </>
       )}
 
       {status === "beendet" && !loadingVotes && (
         <>
           <div style={S.sectionLabel}>Ergebnis</div>
-          <RankingList ranking={ranking} />
+          <RoundResults allVoted={allVoted} voteView={voteView} setVoteView={setVoteView} ranking={ranking} votes={votes} members={members} roundDests={roundDests} />
           {candidateDays.length > 0 && (
             <>
               <div style={S.sectionLabel}>Gewählter Termin</div>
@@ -1630,6 +1632,50 @@ function VotingBlock({ destinations, myVotes, onSave, onDraftChange }) {
       <button style={{ ...S.primaryBtn, opacity: completed ? 1 : 0.45 }} disabled={!completed} onClick={() => onSave(draft)}>
         {completed ? "Bewertung speichern" : `Noch ${n - Object.keys(draft).length} Ziel(e) offen`}
       </button>
+    </div>
+  );
+}
+
+function RoundResults({ allVoted, voteView, setVoteView, ranking, votes, members, roundDests }) {
+  return (
+    <>
+      {allVoted && (
+        <div style={{ display: "flex", gap: 8 }}>
+          <Chip active={voteView === "gesamt"} onClick={() => setVoteView("gesamt")}>Gesamt</Chip>
+          <Chip active={voteView === "einzeln"} onClick={() => setVoteView("einzeln")}>Einzelstimmen</Chip>
+        </div>
+      )}
+      {allVoted && voteView === "einzeln" ? (
+        <VotesByPerson members={members} votes={votes} roundDests={roundDests} />
+      ) : (
+        <RankingList ranking={ranking} />
+      )}
+    </>
+  );
+}
+
+function VotesByPerson({ members, votes, roundDests }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {members.map((m) => {
+        const v = votes[m];
+        if (!v) return null;
+        const ranked = roundDests
+          .map((d) => ({ ...d, points: v[d.id] }))
+          .filter((d) => d.points !== undefined)
+          .sort((a, b) => a.points - b.points);
+        return (
+          <div key={m} style={S.personVoteCard}>
+            <div style={S.personVoteName}>{m}</div>
+            {ranked.map((d, i) => (
+              <div key={d.id} style={S.personVoteRow}>
+                <span style={S.personVoteRank}>{i + 1}.</span>
+                <span style={S.personVoteDest}>{d.name}</span>
+              </div>
+            ))}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -2295,6 +2341,11 @@ const S = {
   rankBarTrack: { height: 6, background: "#EFEDE3", borderRadius: 4, overflow: "hidden" },
   rankBarFill: { height: "100%", background: "linear-gradient(90deg, #3F6B4A, #6FA07C)", borderRadius: 4 },
   rankPoints: { fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, fontSize: 16, color: "#C97A3D", minWidth: 28, textAlign: "right" },
+  personVoteCard: { background: "#FFFFFF", borderRadius: 12, padding: "10px 14px", display: "flex", flexDirection: "column", gap: 5 },
+  personVoteName: { fontSize: 13, fontWeight: 700, color: "#3F6B4A", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 2 },
+  personVoteRow: { display: "flex", alignItems: "baseline", gap: 8 },
+  personVoteRank: { fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, fontSize: 12.5, color: "#C97A3D", minWidth: 16 },
+  personVoteDest: { fontSize: 14, color: "#223022" },
   archiveInfo: { fontSize: 11.5, color: "#8A8A7A", marginTop: 6, fontStyle: "italic" },
   recentBtn: { display: "flex", alignItems: "center", gap: 2, width: "100%", padding: "10px 12px", borderRadius: 10, border: "1.5px solid #D8D5C6", background: "#FFFFFF", color: "#223022", fontSize: 13.5, cursor: "pointer" },
   orDivider: { fontSize: 11, color: "#B9B6A6", textAlign: "center", margin: "12px 0 -4px" },
