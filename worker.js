@@ -15,7 +15,16 @@ export default {
     if (url.pathname === "/api/admin-auth" && request.method === "POST") {
       return handleAdminAuth(request, env);
     }
-    return env.ASSETS.fetch(request);
+    const response = await env.ASSETS.fetch(request);
+    // HTML nie hart cachen lassen (Browser/PWA sonst auf altem Stand
+    // hängen bleiben, z. B. nach Bugfixes wie am Kalender-Export) - Assets
+    // wie Icons dürfen wie gehabt normal gecacht werden.
+    if (request.method === "GET" && (response.headers.get("content-type") || "").includes("text/html")) {
+      const fresh = new Response(response.body, response);
+      fresh.headers.set("Cache-Control", "no-cache, must-revalidate");
+      return fresh;
+    }
+    return response;
   },
 };
 
